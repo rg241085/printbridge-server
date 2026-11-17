@@ -1,0 +1,291 @@
+"""
+PrintBridge cloud server (v0.2)
+
+Kaam:
+  - Laptop program yahan WebSocket se juda rehta hai (laptop hamesha khud connect karta hai,
+    isliye router/firewall ki koi setting nahi chahiye).
+  - Phone app (isi server se khulti hai) Laptop ID + PIN se laptop ko jodti hai,
+    aur file upload karti hai.
+  - Server file ko kuch der rakhta hai, laptop ko batata hai, laptop file download karke print karta hai.
+
+Server kisi ka password/token save nahi karta:
+  - Laptop ID uske secret se banti hai (sha256), isliye koi aur us ID ka daawa nahi kar sakta.
+  - Phone ka token sirf laptop check karta hai.
+"""
+import asyncio
+import hashlib
+import json
+import os
+import secrets
+import shutil
+import tempfile
+import time
+import uuid
+
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+VERSION = "0.2"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+WEB_DIR = os.path.join(APP_DIR, "web")
+JOB_DIR = os.path.join(tempfile.gettempdir(), "printbridge_jobs")
+os.makedirs(JOB_DIR, exist_ok=True)
+
+MAX_MB = 50
+JOB_TTL = 15 * 60  # 15 minute baad job aur file hata do
+ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".txt", ".doc", ".docx",
+               ".xls", ".xlsx", ".ppt", ".pptx", ".rtf", ".odt"}
+
+
+def id_from_secret(secret: str) -> str:
+    h = hashlib.sha256(("printbridge:" + secret).encode()).digest()
+    c = "".join(ID_ALPHABET[b % 32] for b in h[:8])
+    return f"PB-{c[:4]}-{c[4:]}"
+
+
+def norm_id(s: str) -> str:
+    s = "".join(ch for ch in (s or "").upper() if ch.isalnum())
+    if s.startswith("PB"):
+        s = s[2:]
+    return f"PB-{s[:4]}-{s[4:8]}" if len(s) == 8 else ""
+
+
+# ---------------------------------------------------------------- laptops (agents)
+class Agent:
+    def __init__(self, ws: WebSocket, device_id: str, name: str, version: str):
+        self.ws, self.id, self.name, self.version = ws, device_id, name, version
+        self.pending: dict[str, asyncio.Future] = {}
+        self.send_lock = asyncio.Lock()
+
+    async def send(self, msg: dict):
+        async with self.send_lock:
+            await self.ws.send_text(json.dumps(msg))
+
+    async def rpc(self, method: str, params: dict, timeout: float = 20):
+        rid = uuid.uuid4().hex
+        fut = asyncio.get_running_loop().create_future()
+        self.pending[rid] = fut
+        try:
+            await self.send({"type": "rpc", "rid": rid, "method": method, "params": params})
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "Laptop ne jawab nahi diya")
+        finally:
+            self.pending.pop(rid, None)
+
+
+AGENTS: dict[str, Agent] = {}
+JOBS: dict[str, dict] = {}
+
+app = FastAPI(title="PrintBridge", docs_url=None, redoc_url=None)
+
+
+def get_agent(device_id: str) -> Agent:
+    a = AGENTS.get(norm_id(device_id))
+    if not a:
+        raise HTTPException(404, "Laptop abhi online nahi hai. Laptop par PrintBridge chalu kijiye.")
+    return a
+
+
+@app.exception_handler(HTTPException)
+async def _http_err(_req, exc: HTTPException):
+    return JSONResponse({"ok": False, "error": exc.detail}, status_code=exc.status_code)
+
+
+@app.websocket("/ws/agent")
+async def agent_ws(ws: WebSocket):
+    await ws.accept()
+    try:
+        hello = json.loads(await asyncio.wait_for(ws.receive_text(), 20))
+        secret = str(hello.get("secret", ""))
+        if hello.get("type") != "hello" or len(secret) < 20:
+            await ws.close(code=4001)
+            return
+    except Exception:
+        await ws.close(code=4001)
+        return
+
+    device_id = id_from_secret(secret)
+    agent = Agent(ws, device_id, str(hello.get("name", "Laptop"))[:60], str(hello.get("version", "")))
+    old = AGENTS.get(device_id)
+    AGENTS[device_id] = agent
+    if old:
+        try:
+            await old.ws.close(code=4002)
+        except Exception:
+            pass
+    await agent.send({"type": "welcome", "id": device_id, "server_version": VERSION})
+
+    try:
+        while True:
+            msg = json.loads(await ws.receive_text())
+            t = msg.get("type")
+            if t == "rpc_result":
+                fut = agent.pending.get(msg.get("rid"))
+                if fut and not fut.done():
+                    fut.set_result(msg.get("result") or {})
+            elif t == "job_status":
+                job = JOBS.get(msg.get("job_id"))
+                if job and job["device_id"] == device_id:
+                    job["status"] = msg.get("status", job["status"])
+                    job["message"] = str(msg.get("message", ""))[:300]
+                    if job["status"] in ("done", "error"):
+                        _drop_file(job)
+            elif t == "hb":
+                await agent.send({"type": "hb_ack"})
+    except (WebSocketDisconnect, RuntimeError, json.JSONDecodeError):
+        pass
+    finally:
+        if AGENTS.get(device_id) is agent:
+            del AGENTS[device_id]
+        for fut in agent.pending.values():
+            if not fut.done():
+                fut.cancel()
+
+
+# ---------------------------------------------------------------- phone API
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "version": VERSION, "laptops_online": len(AGENTS)}
+
+
+@app.get("/api/devices/{device_id}")
+async def device_status(device_id: str):
+    a = AGENTS.get(norm_id(device_id))
+    return {"ok": True, "online": bool(a), "name": a.name if a else None}
+
+
+@app.post("/api/pair")
+async def pair(request: Request):
+    body = await request.json()
+    device_id = norm_id(body.get("id", ""))
+    if not device_id:
+        raise HTTPException(400, "Laptop ID sahi nahi hai (jaise PB-7K3M-9QX2)")
+    agent = get_agent(device_id)
+    res = await agent.rpc("pair", {"pin": str(body.get("pin", ""))[:12],
+                                   "phone": str(body.get("phone", "Phone"))[:40]})
+    if not res.get("ok"):
+        raise HTTPException(403, res.get("error", "PIN galat hai"))
+    return {"ok": True, "id": device_id, "name": agent.name, "token": res["token"]}
+
+
+@app.get("/api/devices/{device_id}/printers")
+async def printers(device_id: str, x_pb_token: str = Header("")):
+    res = await get_agent(device_id).rpc("printers", {"token": x_pb_token})
+    if not res.get("ok"):
+        raise HTTPException(401 if res.get("auth") is False else 500, res.get("error", "Error"))
+    return res
+
+
+@app.post("/api/jobs")
+async def create_job(
+    file: UploadFile = File(...),
+    device_id: str = Form(...),
+    copies: int = Form(1),
+    printer: str = Form(""),
+    phone: str = Form("Phone"),
+    x_pb_token: str = Header(""),
+):
+    agent = get_agent(device_id)
+    name = os.path.basename(file.filename or "file")
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, f"'{ext or name}' type ki file print nahi ho sakti")
+
+    job_id = uuid.uuid4().hex
+    path = os.path.join(JOB_DIR, job_id + ext)
+    size = 0
+    with open(path, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_MB * 1024 * 1024:
+                out.close()
+                os.remove(path)
+                raise HTTPException(413, f"File bahut badi hai (max {MAX_MB} MB)")
+            out.write(chunk)
+
+    job = {"id": job_id, "device_id": agent.id, "path": path, "filename": name, "size": size,
+           "status": "waiting", "message": "Laptop ko bhej rahe hain", "created": time.time(),
+           "dl_key": secrets.token_urlsafe(16)}
+    JOBS[job_id] = job
+    try:
+        res = await agent.rpc("job", {
+            "job_id": job_id, "filename": name, "size": size,
+            "copies": max(1, min(int(copies), 50)), "printer": printer[:200], "phone": phone[:40],
+            "token": x_pb_token, "dl_key": job["dl_key"],
+        })
+    except HTTPException:
+        _drop_job(job_id)
+        raise
+    if not res.get("ok"):
+        _drop_job(job_id)
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Laptop ne mana kar diya"))
+    job["status"] = "accepted"
+    job["message"] = "Laptop file le raha hai"
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/api/jobs/{job_id}")
+async def job_status(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job nahi mila")
+    return {"ok": True, "status": job["status"], "message": job["message"]}
+
+
+@app.get("/api/agent/jobs/{job_id}/file")
+async def agent_download(job_id: str, x_dl_key: str = Header("")):
+    job = JOBS.get(job_id)
+    if not job or not secrets.compare_digest(x_dl_key, job["dl_key"]) or not os.path.exists(job["path"]):
+        raise HTTPException(404, "File nahi mili")
+    job["status"] = "downloading"
+    return FileResponse(job["path"], filename=job["filename"])
+
+
+def _drop_file(job):
+    try:
+        os.remove(job["path"])
+    except OSError:
+        pass
+
+
+def _drop_job(job_id):
+    job = JOBS.pop(job_id, None)
+    if job:
+        _drop_file(job)
+
+
+async def _cleanup():
+    while True:
+        cutoff = time.time() - JOB_TTL
+        for jid in [j for j, v in JOBS.items() if v["created"] < cutoff]:
+            _drop_job(jid)
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def _startup():
+    shutil.rmtree(JOB_DIR, ignore_errors=True)
+    os.makedirs(JOB_DIR, exist_ok=True)
+    asyncio.create_task(_cleanup())
+
+
+# ---------------------------------------------------------------- phone app (PWA)
+@app.post("/share")
+async def share_fallback():
+    # Normally service worker ise pakad leta hai. Agar SW active nahi tha to app khol do.
+    return RedirectResponse("/?shared=retry", status_code=303)
+
+
+@app.middleware("http")
+async def _headers(request: Request, call_next):
+    resp = await call_next(request)
+    p = request.url.path
+    if p in ("/", "/index.html", "/sw.js", "/manifest.webmanifest") or p.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
