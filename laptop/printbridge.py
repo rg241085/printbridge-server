@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v1.3)
+PrintBridge - laptop wala program (v1.4)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "1.3"
+VERSION = "1.4"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -541,40 +541,132 @@ def check_for_update():
     return None
 
 
+def app_dir():
+    """Nayi exe yahan rakhte hain: %LOCALAPPDATA%/PrintBridge/app (OneDrive/Documents se bahar, koi lock nahi)."""
+    base = os.environ.get("LOCALAPPDATA") or DATA_DIR
+    d = os.path.join(base, "PrintBridge", "app")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def install_update(ver, url):
-    """Nayi exe download karo, phir chhoti .bat file purani exe ko badal kar naya program chalu karti hai."""
-    exe = sys.executable
-    new = exe + ".new"
+    """Naya tareeka (v1.4): purani exe ko BADALTE NAHI. Nayi exe alag naam se rakhte hain,
+    use chalate hain, aur Windows-startup ko nayi exe par set karte hain. Na kaala window, na file lock."""
+    target = os.path.join(app_dir(), f"PrintBridge-{ver}.exe")
+    tmp = target + ".download"
     emit(f"Naya version v{ver} mila. Download ho raha hai...")
     req = urllib.request.Request(url, headers={"User-Agent": f"PrintBridge/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=300) as r, open(new, "wb") as f:
+    with urllib.request.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f)
-    with open(new, "rb") as f:
+    with open(tmp, "rb") as f:
         ok = f.read(2) == b"MZ"
-    if not ok or os.path.getsize(new) < 1_000_000:
-        os.remove(new)
+    if not ok or os.path.getsize(tmp) < 1_000_000:
+        os.remove(tmp)
         raise RuntimeError("download adhoora tha")
-    bat = os.path.join(DATA_DIR, "update.bat")
-    with open(bat, "w", encoding="mbcs") as f:
-        f.write(
-            "@echo off\r\n"
-            "set n=0\r\n"
-            ":retry\r\n"
-            "timeout /t 2 /nobreak >nul\r\n"
-            f'move /y "{new}" "{exe}" >nul 2>&1\r\n'
-            "if not errorlevel 1 goto run\r\n"
-            "set /a n+=1\r\n"
-            "if %n% lss 30 goto retry\r\n"
-            ":run\r\n"
-            f'start "" "{exe}" --minimized\r\n'
-            '(goto) 2>nul & del "%~f0"\r\n')
-    emit(f"v{ver} install ho raha hai, PrintBridge kuch second me dobara chalu hoga...")
-    log.info("update to %s", ver)
+    os.replace(tmp, target)
+    with CFG_LOCK:
+        CFG["installed_exe"], CFG["installed_version"] = target, ver
+        save_config()
+    try:
+        set_autostart(True, exe=target)   # agli baar Windows nayi exe chalaye
+    except Exception:
+        log.exception("autostart update")
+    emit(f"v{ver} chalu ho raha hai...")
+    log.info("update to %s -> %s", ver, target)
     with PRINT_LOCK:  # koi print chal raha ho to uske khatam hone ka intezaar
-        subprocess.Popen(["cmd", "/c", bat], creationflags=0x08000000 | 0x00000008,  # NO_WINDOW | DETACHED
-                         close_fds=True)
-        time.sleep(0.5)
+        subprocess.Popen([target, "--minimized", "--after-update"], close_fds=True,
+                         creationflags=0x00000008 | 0x00000200)  # DETACHED | NEW_PROCESS_GROUP (exe windowed hai, koi console nahi)
+        time.sleep(0.3)
         os._exit(0)
+
+
+def desktop_shortcut(target, create=True):
+    """Desktop par 'PrintBridge' shortcut: banao (create=True) ya pehle se ho to nayi exe par set karo."""
+    if not (FROZEN and sys.platform == "win32"):
+        return
+    try:
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        ws = win32com.client.Dispatch("WScript.Shell")
+        lnk = os.path.join(ws.SpecialFolders("Desktop"), "PrintBridge.lnk")
+        if not create and not os.path.exists(lnk):
+            return
+        sc = ws.CreateShortcut(lnk)
+        sc.TargetPath = target
+        sc.WorkingDirectory = os.path.dirname(target)
+        sc.IconLocation = target + ",0"
+        sc.Description = "PrintBridge - mobile se print"
+        sc.Save()
+    except Exception:
+        log.exception("desktop shortcut")
+
+
+def install_self():
+    """exe kahin se bhi chalayi (Downloads/Desktop): khud ko pakki jagah copy karo, startup wahin se."""
+    if not (FROZEN and sys.platform == "win32"):
+        return
+    if os.path.normcase(os.path.dirname(sys.executable)) == os.path.normcase(app_dir()):
+        return
+    target = os.path.join(app_dir(), f"PrintBridge-{VERSION}.exe")
+    try:
+        if not os.path.exists(target):
+            shutil.copy2(sys.executable, target)
+        with CFG_LOCK:
+            CFG["installed_exe"], CFG["installed_version"] = target, VERSION
+            save_config()
+        desktop_shortcut(target, create=True)
+        log.info("installed copy: %s", target)
+    except Exception:
+        log.exception("install_self")
+
+
+def redirect_to_newer():
+    """Purani exe chalayi gayi (jaise purana shortcut) aur nayi install hai -> nayi chalao, purani band."""
+    if not (FROZEN and sys.platform == "win32"):
+        return False
+    inst, iv = CFG.get("installed_exe"), CFG.get("installed_version")
+    if not inst or not os.path.exists(inst) or os.path.normcase(inst) == os.path.normcase(sys.executable):
+        return False
+    if (parse_version(iv) or (0,)) <= parse_version(VERSION):
+        return False
+    try:
+        args = [a for a in sys.argv[1:] if a != "--after-update"]
+        subprocess.Popen([inst] + args, close_fds=True, creationflags=0x00000008 | 0x00000200)
+        return True
+    except Exception:
+        log.exception("redirect")
+        return False
+
+
+def tidy_after_update():
+    """Nayi exe chalne ke baad: apni jagah yaad rakho, purani PrintBridge-*.exe aur adhoore downloads hatao."""
+    if not (FROZEN and sys.platform == "win32"):
+        return
+    me = sys.executable
+    if os.path.normcase(os.path.dirname(me)) == os.path.normcase(app_dir()) and \
+            (parse_version(CFG.get("installed_version")) or (0,)) <= parse_version(VERSION):
+        with CFG_LOCK:
+            CFG["installed_exe"], CFG["installed_version"] = me, VERSION
+            save_config()
+        desktop_shortcut(me, create=False)  # update ke baad shortcut nayi exe par
+    d = app_dir()
+    keep = {os.path.normcase(me), os.path.normcase(CFG.get("installed_exe") or "")}
+    for n in os.listdir(d):
+        fp = os.path.join(d, n)
+        if os.path.normcase(fp) in keep:
+            continue
+        if n.endswith(".download") or (n.startswith("PrintBridge-") and n.endswith(".exe")):
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
+    # v1.3 tak ka purana tareeka: bachi hui ".new" file aur update.bat
+    for fp in (me + ".new", os.path.join(DATA_DIR, "update.bat")):
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
 
 
 def update_now(manual=False):
@@ -592,6 +684,18 @@ def update_now(manual=False):
         if not (FROZEN and sys.platform == "win32"):
             emit(f"Naya version v{ver} hai (auto-update sirf PrintBridge.exe me hota hai)")
             return
+        # Ek hi version ka update baar-baar fail ho to apne aap koshish band (chakkar na chale)
+        att = CFG.get("update_attempt") or {}
+        if att.get("ver") == ver and time.time() - att.get("time", 0) < 24 * 3600:
+            if att.get("count", 0) >= 2 and not manual:
+                log.info("update %s pehle 2 baar try ho chuka, abhi nahi", ver)
+                return
+            att["count"] = att.get("count", 0) + 1
+        else:
+            att = {"ver": ver, "time": time.time(), "count": 1}
+        with CFG_LOCK:
+            CFG["update_attempt"] = att
+            save_config()
         install_update(ver, url)
     except Exception as e:
         log.info("update check fail: %r", e)
@@ -710,7 +814,9 @@ CLOUD = Cloud()
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
-def autostart_command():
+def autostart_command(exe=None):
+    if exe:
+        return f'"{exe}" --minimized'
     if FROZEN:
         return f'"{sys.executable}" --minimized'
     exe = sys.executable
@@ -731,11 +837,11 @@ def autostart_enabled():
         return False
 
 
-def set_autostart(on):
+def set_autostart(on, exe=None):
     import winreg
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
         if on:
-            winreg.SetValueEx(k, "PrintBridge", 0, winreg.REG_SZ, autostart_command())
+            winreg.SetValueEx(k, "PrintBridge", 0, winreg.REG_SZ, autostart_command(exe))
         else:
             try:
                 winreg.DeleteValue(k, "PrintBridge")
@@ -753,9 +859,10 @@ def set_autostart(on):
 
 def first_run_setup():
     """exe pehli baar chale to Windows ke saath start apne aap ON kar do."""
+    exe = CFG.get("installed_exe") if CFG.get("installed_exe") and os.path.exists(CFG["installed_exe"]) else None
     if sys.platform == "win32" and FROZEN and not CFG.get("autostart_done"):
         try:
-            set_autostart(True)
+            set_autostart(True, exe=exe)
         except Exception:
             log.exception("autostart")
         with CFG_LOCK:
@@ -763,7 +870,7 @@ def first_run_setup():
             save_config()
     elif sys.platform == "win32" and autostart_enabled():
         try:
-            set_autostart(True)  # exe ki jagah badli ho to path update
+            set_autostart(True, exe=exe)  # hamesha pakki jagah wali exe
         except Exception:
             pass
 
@@ -956,7 +1063,8 @@ def run_gui():
 
         def on_auto():
             try:
-                set_autostart(auto_var.get())
+                inst = CFG.get("installed_exe")
+                set_autostart(auto_var.get(), exe=inst if inst and os.path.exists(inst) else None)
                 emit("Windows ke saath start: " + ("ON" if auto_var.get() else "OFF"))
             except Exception as e:
                 messagebox.showerror("PrintBridge", str(e))
@@ -1166,7 +1274,15 @@ def main():
         CFG["server_url"] = sys.argv[sys.argv.index("--server") + 1]
         save_config()
     save_config()
+    if redirect_to_newer():
+        return  # nayi exe chala di, ye purani band
     lock = single_instance()
+    if not lock and "--after-update" in sys.argv:
+        for _ in range(40):  # purana program band hone ka intezaar (max ~20 sec)
+            time.sleep(0.5)
+            lock = single_instance()
+            if lock:
+                break
     if not lock:
         if "--nogui" not in sys.argv and show_running_instance():
             return  # pehle se chal raha hai: uski window saamne aa gayi
@@ -1180,6 +1296,8 @@ def main():
             messagebox.showinfo("PrintBridge", msg)
         return
     log.info("start v%s id=%s", VERSION, CFG["device_id"])
+    install_self()
+    tidy_after_update()
     first_run_setup()
     if not LOCAL.start():
         log.info("local server: %s", LOCAL.error)
