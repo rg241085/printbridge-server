@@ -81,7 +81,12 @@
 
   <!-- ===== Order form ===== -->
   <div id="form" class="hidden">
-    <section class="card">
+    <section class="card hidden" id="addBanner" style="background:#ede9fe">
+      <b id="addTitle">Token #— mein files jod rahe hain</b>
+      <p class="hint">Nayi files isi order mein judengi. Token wahi rahega aur rupaye jud jaayenge.</p>
+      <button class="lnk" id="addCancel">← Wapas order par</button>
+    </section>
+    <section class="card" id="whoCard">
       <div class="banner hidden" id="shopMsg"></div>
       <div class="rates"><div>Black &amp; White<b id="rBW">₹—</b>per kaagaz</div><div>Color<b id="rC">₹—</b>per kaagaz</div></div>
       <label class="r" for="cname">Aapka naam *</label>
@@ -114,13 +119,15 @@
 
     <section class="card">
       <b>3. Aur</b>
-      <div id="privRow">
+      <div id="privRow" class="privRow">
         <label class="r">Shop wala aapki file dekh sakta hai?</label>
         <div class="seg" data-k="private"><button data-v="0" class="on">👁 Haan, dekh sakta hai</button><button data-v="1">🔒 Nahi, seedha print</button></div>
         <p class="priv" id="privHint">Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).</p>
       </div>
+      <div id="noteRow">
       <label class="r" for="note">Shop ke liye sandesh <small>(zaroori nahi)</small></label>
       <textarea class="t" id="note" maxlength="200" placeholder="jaise: spiral binding chahiye, ya staple kar dijiye"></textarea>
+      </div>
       <div class="est"><div><small>Andaazit kharcha</small><span id="estPages">—</span></div><b id="est">₹0</b></div>
       <button class="btn" id="send" disabled>Shop ko bhejiye</button>
       <div class="bar" id="bar"><div></div></div>
@@ -135,14 +142,15 @@
       <div class="token"><small>Aapka token</small><b id="tok">#—</b></div>
       <div class="state" id="state">…</div>
       <div class="sub" id="sub"></div>
-      <div style="text-align:center"><span class="pill hidden" id="privPill">🔒 Private: seedha print, shop file nahi dekhega</span></div>
+      <div style="text-align:center"><span class="pill hidden" id="privPill">🔒 Private: shop wala aapki file nahi dekh sakta</span></div>
     </section>
     <section class="card">
       <ul class="f" id="olist"></ul>
       <div class="total"><span>Kul</span><span id="otot">₹—</span></div>
       <p class="hint" id="payHint">Paisa counter par dijiye.</p>
+      <button class="btn light hidden" id="addMore">＋ Is order mein aur file jodiye</button>
       <button class="btn red hidden" id="cancel">Order cancel karein</button>
-      <button class="btn light hidden" id="again">＋ Naya order</button>
+      <button class="btn light" id="again">＋ Naya alag order</button>
     </section>
   </div>
 </main>
@@ -160,7 +168,17 @@
   const saved = () => { try { return JSON.parse(localStorage.getItem(K)) || {}; } catch (e) { return {}; } };
   const store = o => localStorage.setItem(K, JSON.stringify(Object.assign(saved(), o)));
 
-  let items = [], copies = 1, rates = {};
+  let items = [], copies = 1, rates = {}, addTo = null;
+  function setAddMode(on) {
+    const s = saved();
+    addTo = on ? { order: s.order, token: s.token } : null;
+    $("addBanner").classList.toggle("hidden", !on);
+    $("whoCard").classList.toggle("hidden", on);
+    $("noteRow").classList.toggle("hidden", on);
+    if (rates.allow_private) $("privRow").classList.toggle("hidden", on);
+    $("addTitle").textContent = on ? `Token #${s.token} mein files jod rahe hain` : "";
+    $("send").textContent = on ? `Token #${s.token} mein jodiye` : "Shop ko bhejiye";
+  }
   const opt = { color: "bw", nup: "1", fit: "fit", paper: "default", duplex: "off", private: "0" };
   const PAPER = { default: "Shop ka", a4: "A4", letter: "Letter", legal: "Legal", a3: "A3", a5: "A5" };
   const IMG = ["jpg", "jpeg", "png", "bmp", "gif", "webp"];
@@ -278,7 +296,7 @@
     opt[sg.dataset.k] = b.dataset.v;
     sg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
     if (sg.dataset.k === "private") $("privHint").textContent = b.dataset.v === "1"
-      ? "🔒 File apne aap seedha print hogi. Shop wala na file khol payega, na uska naam dekh payega. Print hote hi file mita di jaayegi."
+      ? "🔒 Shop wala aapki file na khol payega, na uska naam dekh payega. Wo sirf print kar sakta hai. Kaam khatam hote hi file mita di jaayegi."
       : "Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).";
     estimate();
   });
@@ -310,6 +328,7 @@
     });
   }
   $("send").onclick = async () => {
+    if (addTo && !$("cname").value.trim()) $("cname").value = saved().name || "Customer";
     const name = $("cname").value.trim();
     if (!name) { $("cname").focus(); return msg("err", "Pehle apna naam likhiye"); }
     const empty = items.find(it => it.n != null && it.sel.size === 0);
@@ -317,7 +336,7 @@
     const lockedF = items.find(it => it.locked);
     if (lockedF) return msg("err", `"${lockedF.file.name}" ka password pehle daaliye`);
     store({ name, mobile: $("cmob").value.trim() });
-    const orderId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "" + Math.random()).replace(/[^a-z0-9]/gi, "").slice(0, 32);
+    const orderId = addTo ? addTo.order : (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "" + Math.random()).replace(/[^a-z0-9]/gi, "").slice(0, 32);
     $("send").disabled = true; $("bar").style.display = "block";
     let token = null; const errs = [];
     for (let i = 0; i < items.length; i++) {
@@ -328,8 +347,9 @@
     }
     $("bar").style.display = "none";
     if (!token) { $("send").disabled = false; return msg("err", errs.join("\n")); }
-    store({ order: orderId, token, errs });
-    items = []; renderList();
+    const prevErrs = addTo ? (saved().errs || []) : [];
+    store({ order: orderId, token, errs: prevErrs.concat(errs) });
+    items = []; renderList(); setAddMode(false); $("msg").className = "msg";
     showStatus();
   };
 
@@ -357,7 +377,7 @@
       $("payHint").textContent = r.total_known ? "Paisa counter par dijiye." : "Kuch file ke page counter par gine jaayenge.";
       const active = ["receiving", "waiting", "printing", "ready"].includes(r.status);
       $("cancel").classList.toggle("hidden", !["receiving", "waiting"].includes(r.status));
-      $("again").classList.toggle("hidden", active && r.status !== "ready");
+      $("addMore").classList.toggle("hidden", !["receiving", "waiting"].includes(r.status));
       if (r.status === "ready" && lastState !== "ready" && lastState !== "") {
         if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
         try { const a = new AudioContext(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination);
@@ -379,9 +399,19 @@
     showStatus();
   };
   $("again").onclick = () => {
+    const s = saved();
+    if (["receiving", "waiting", "printing", "ready"].includes(lastState) &&
+        !confirm(`Token #${s.token} ka order chalta rahega. Ek naya alag order banayein?`)) return;
     clearTimeout(timer); store({ order: null, token: null, errs: [] }); lastState = "";
+    setAddMode(false);
     $("status").classList.add("hidden"); $("form").classList.remove("hidden"); $("msg").className = "msg";
   };
+  $("addMore").onclick = () => {
+    clearTimeout(timer); setAddMode(true); items = []; renderList();
+    $("status").classList.add("hidden"); $("form").classList.remove("hidden"); $("msg").className = "msg";
+    window.scrollTo(0, 0);
+  };
+  $("addCancel").onclick = () => { setAddMode(false); items = []; renderList(); $("form").classList.add("hidden"); showStatus(); };
   start();
 })();
 </script>

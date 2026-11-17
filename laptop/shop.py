@@ -98,7 +98,8 @@ class ShopQueue:
             else:
                 new = False
                 if o["status"] not in ("receiving", "waiting"):
-                    raise pb.PrintError("Ye order aage badh chuka hai. Naye order ke liye page dobara kholiye.")
+                    raise pb.PrintError("Is order ka print shuru ho chuka hai, ab isme file nahi jud sakti. "
+                                        "'Naya alag order' banaiye.")
                 if len(o["files"]) >= MAX_FILES_PER_ORDER:
                     raise pb.PrintError(f"Ek order mein {MAX_FILES_PER_ORDER} se zyada files nahi")
                 o["status"] = "receiving"
@@ -134,8 +135,8 @@ class ShopQueue:
             self._recalc(o)
             self._save()
         self.on_change("update", o)
-        if o["status"] == "waiting" and (self.get_cfg().get("auto_print") or o.get("private")):
-            self.on_change("auto_print", o)  # private order: koi file nahi dekhega, seedha print
+        if o["status"] == "waiting" and self.get_cfg().get("auto_print"):
+            self.on_change("auto_print", o)
 
     def status(self, order_id):
         with self.lock:
@@ -242,8 +243,6 @@ class ShopQueue:
         if errors and all(f["status"] == "error" for f in o["files"]):
             self.set_status(order_id, "waiting", "Print nahi ho paaya: " + "; ".join(errors)[:200])
             return False, "; ".join(errors)
-        if o.get("private"):
-            self._drop_files(o)  # private: print hote hi file mita do
         self.set_status(order_id, "ready", "Print ho gaya. Counter se le lijiye.")
         return True, "; ".join(errors)
 

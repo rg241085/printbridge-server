@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "1.2"
+VERSION = "1.3"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
