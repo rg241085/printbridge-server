@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v0.7)
+PrintBridge - laptop wala program (v0.8)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -28,7 +28,7 @@ from datetime import datetime
 import printer_backend as pb
 import scanner as sc
 
-VERSION = "0.7"
+VERSION = "0.8"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -111,6 +111,7 @@ CFG_LOCK = threading.Lock()
 EVENTS = queue.Queue()
 PRINT_LOCK = threading.Lock()
 PIN_FAILS = []
+UI_EVENTS = queue.Queue()  # "show" / "quit": tray icon ya doosri baar exe kholne se
 APPROVALS = queue.Queue()  # (phone ka naam, Event, result) -> window "Allow?" poochti hai
 GUI_MODE = "--nogui" not in sys.argv
 
@@ -591,8 +592,8 @@ def run_gui():
     root.geometry("440x820")
     root.minsize(400, 700)
     root.configure(bg="white")
+    icon_path = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "icon.png")
     try:
-        icon_path = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "icon.png")
         if os.path.exists(icon_path):
             root.iconphoto(True, ImageTk.PhotoImage(Image.open(icon_path)))
     except Exception:
@@ -739,6 +740,7 @@ def run_gui():
         if box_["expired"]:
             return
         asking["busy"] = True
+        was_hidden = root.state() in ("withdrawn", "iconic")
         root.deiconify()
         root.lift()
         root.attributes("-topmost", True)
@@ -750,6 +752,8 @@ def run_gui():
         box_["ok"] = ok and not box_["expired"]
         ev.set()
         asking["busy"] = False
+        if was_hidden:
+            hide_window(notify=False)
 
     def poll():
         while not EVENTS.empty():
@@ -764,22 +768,77 @@ def run_gui():
             refresh()
         if not asking["busy"] and not APPROVALS.empty():
             root.after(10, handle_approval)
-        root.after(500, poll)
+        while not UI_EVENTS.empty():
+            ev = UI_EVENTS.get()
+            if ev == "show":
+                show_window()
+            elif ev == "quit":
+                quit_app()
+                return
+        root.after(400, poll)
 
-    def on_close():
-        r = messagebox.askyesnocancel("PrintBridge", "PrintBridge band karein?\n\n"
-                                      "Yes = band (phone se print nahi aayenge)\nNo = chhota karke chalne do")
-        if r:
+    # ---- system tray (ghadi ke paas wala icon): window band karne par bhi program chalta rahe
+    tray = {"icon": None}
+
+    def start_tray():
+        try:
+            if sys.platform == "win32":
+                import pystray._win32  # noqa: F401  (exe mein Windows wala hissa zaroor shaamil ho)
+            import pystray
+            img = Image.open(icon_path) if os.path.exists(icon_path) else Image.new("RGB", (64, 64), BLUE)
+            menu = pystray.Menu(
+                pystray.MenuItem("PrintBridge kholiye", lambda: UI_EVENTS.put("show"), default=True),
+                pystray.MenuItem("PrintBridge band karein", lambda: UI_EVENTS.put("quit")))
+            icon = pystray.Icon("PrintBridge", img, "PrintBridge: mobile se print (chal raha hai)", menu)
+            threading.Thread(target=icon.run, daemon=True).start()
+            tray["icon"] = icon
+        except Exception:
+            log.exception("tray icon")
+
+    def show_window():
+        root.deiconify()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.after(300, lambda: root.attributes("-topmost", False))
+        root.focus_force()
+
+    def hide_window(notify=True):
+        if tray["icon"] is None:
+            root.iconify()  # tray nahi bana to bas chhota kar do
+            return
+        root.withdraw()
+        if notify and not CFG.get("tray_told"):
+            try:
+                tray["icon"].notify("PrintBridge peeche chal raha hai. Phone se print aate rahenge.\n"
+                                    "Window kholne ke liye ghadi ke paas PrintBridge icon par double-click kijiye.",
+                                    "PrintBridge")
+            except Exception:
+                pass
+            with CFG_LOCK:
+                CFG["tray_told"] = True
+                save_config()
+
+    def quit_app():
+        show_window()
+        if messagebox.askyesno("PrintBridge band karein?",
+                               "PrintBridge poori tarah band ho jaayega aur phone se print NAHI aayenge.\n\n"
+                               "Band karein?", parent=root):
+            if tray["icon"] is not None:
+                try:
+                    tray["icon"].stop()
+                except Exception:
+                    pass
             root.destroy()
-        elif r is False:
-            root.iconify()
+        else:
+            root.after(400, poll)
 
-    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.protocol("WM_DELETE_WINDOW", hide_window)  # ✕ = chhupao, band nahi
+    start_tray()
     refresh()
     load_printers()
     poll()
     if "--minimized" in sys.argv:
-        root.iconify()
+        root.after(50, lambda: hide_window(notify=False))
     root.mainloop()
 
 
@@ -812,14 +871,39 @@ def run_console():
         pass
 
 
+LOCK_PORT = 47651
+
+
 def single_instance():
-    """Ek laptop par PrintBridge ek hi baar chale."""
+    """Ek laptop par PrintBridge ek hi baar chale. Doosri baar khole to pehle wale ki window dikhao."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s.bind(("127.0.0.1", 47651))
-        return s  # socket khula rakho
+        s.bind(("127.0.0.1", LOCK_PORT))
     except OSError:
         return None
+    s.listen(4)
+
+    def accept_loop():
+        while True:
+            try:
+                c, _ = s.accept()
+                with c:
+                    c.settimeout(2)
+                    if c.recv(16).startswith(b"show"):
+                        UI_EVENTS.put("show")
+            except Exception:
+                time.sleep(0.5)
+    threading.Thread(target=accept_loop, daemon=True).start()
+    return s
+
+
+def show_running_instance():
+    try:
+        with socket.create_connection(("127.0.0.1", LOCK_PORT), timeout=2) as c:
+            c.sendall(b"show")
+        return True
+    except OSError:
+        return False
 
 
 def main():
@@ -829,6 +913,8 @@ def main():
     save_config()
     lock = single_instance()
     if not lock:
+        if "--nogui" not in sys.argv and show_running_instance():
+            return  # pehle se chal raha hai: uski window saamne aa gayi
         msg = "PrintBridge pehle se chal raha hai."
         if "--nogui" in sys.argv:
             print(msg)
