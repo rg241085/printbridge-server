@@ -68,8 +68,11 @@ class ShopQueue:
             else:
                 f["price"] = round(f["sheets"] * f["copies"] * self.rate(f["color"]), 2)
                 total += f["price"]
-        o["total"] = round(total, 2)
+        o["calc_total"] = round(total, 2)
         o["total_known"] = all(f.get("sheets") is not None or f["status"] == "error" for f in o["files"])
+        o["total"] = o["amount_override"] if o.get("amount_override") is not None else o["calc_total"]
+        if o.get("amount_override") is not None:
+            o["total_known"] = True
 
     def _new_token(self):
         today = datetime.now().strftime("%Y-%m-%d")
@@ -80,7 +83,7 @@ class ShopQueue:
         return t
 
     # ------------------------------------------------------------ customer ki taraf se
-    def start_file(self, order_id, customer, mobile, filename, copies, opts):
+    def start_file(self, order_id, customer, mobile, filename, copies, opts, note="", private=False):
         """File aane wali hai: order banao (pehli file par token) aur file ki jagah rakho."""
         with self.lock:
             o = self.orders.get(order_id)
@@ -88,7 +91,9 @@ class ShopQueue:
                 o = self.orders[order_id] = {
                     "id": order_id, "token": self._new_token(), "customer": customer[:40] or "Customer",
                     "mobile": (mobile or "")[:15], "created": time.time(), "status": "receiving",
-                    "files": [], "total": 0, "total_known": True, "message": ""}
+                    "files": [], "total": 0, "total_known": True, "message": "",
+                    "seq": time.time(), "note": (note or "")[:200], "private": bool(private),
+                    "amount_override": None}
                 new = True
             else:
                 new = False
@@ -129,8 +134,8 @@ class ShopQueue:
             self._recalc(o)
             self._save()
         self.on_change("update", o)
-        if o["status"] == "waiting" and self.get_cfg().get("auto_print"):
-            self.on_change("auto_print", o)
+        if o["status"] == "waiting" and (self.get_cfg().get("auto_print") or o.get("private")):
+            self.on_change("auto_print", o)  # private order: koi file nahi dekhega, seedha print
 
     def status(self, order_id):
         with self.lock:
@@ -138,9 +143,10 @@ class ShopQueue:
             if not o:
                 return None
             ahead = sum(1 for x in self.orders.values()
-                        if x["status"] in ("waiting", "receiving", "printing") and x["created"] < o["created"])
+                        if x["status"] in ("waiting", "receiving", "printing") and self._key(x) < self._key(o))
             return {"token": o["token"], "status": o["status"], "ahead": ahead, "customer": o["customer"],
                     "total": o["total"], "total_known": o["total_known"], "message": o["message"],
+                    "private": o.get("private", False), "discount": o.get("amount_override") is not None,
                     "files": [{"name": f["name"], "sheets": f["sheets"], "copies": f["copies"], "color": f["color"],
                                "price": f["price"], "status": f["status"], "message": f["message"]} for f in o["files"]]}
 
@@ -160,8 +166,42 @@ class ShopQueue:
     # ------------------------------------------------------------ shop wale ki taraf se
     def list(self):
         with self.lock:
-            return sorted((o for o in self.orders.values() if o["status"] in ACTIVE),
-                          key=lambda o: o["created"])
+            return sorted((o for o in self.orders.values() if o["status"] in ACTIVE), key=self._key)
+
+    @staticmethod
+    def _key(o):
+        return o.get("seq", o["created"])
+
+    def move(self, order_id, how):
+        """Line mein kram badlo: how = 'up' / 'down' / 'top'."""
+        with self.lock:
+            lst = [o for o in self.list() if o["status"] in ("receiving", "waiting")]
+            idx = next((i for i, o in enumerate(lst) if o["id"] == order_id), None)
+            if idx is None:
+                return False
+            o = lst[idx]
+            if how == "top" and idx > 0:
+                o["seq"] = self._key(lst[0]) - 1
+            elif how == "up" and idx > 0:
+                o["seq"], lst[idx - 1]["seq"] = self._key(lst[idx - 1]), self._key(o)
+            elif how == "down" and idx < len(lst) - 1:
+                o["seq"], lst[idx + 1]["seq"] = self._key(lst[idx + 1]), self._key(o)
+            else:
+                return False
+            self._save()
+        self.on_change("update", o)
+        return True
+
+    def set_amount(self, order_id, amount):
+        """Shop wala rupaye badle (discount / round-off). None = apne aap hisaab."""
+        with self.lock:
+            o = self.orders.get(order_id)
+            if not o:
+                return
+            o["amount_override"] = None if amount is None else round(float(amount), 2)
+            self._recalc(o)
+            self._save()
+        self.on_change("update", o)
 
     def get(self, order_id):
         return self.orders.get(order_id)
@@ -202,6 +242,8 @@ class ShopQueue:
         if errors and all(f["status"] == "error" for f in o["files"]):
             self.set_status(order_id, "waiting", "Print nahi ho paaya: " + "; ".join(errors)[:200])
             return False, "; ".join(errors)
+        if o.get("private"):
+            self._drop_files(o)  # private: print hote hi file mita do
         self.set_status(order_id, "ready", "Print ho gaya. Counter se le lijiye.")
         return True, "; ".join(errors)
 

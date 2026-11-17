@@ -70,10 +70,12 @@ def summary(period="today"):
         d = by.setdefault(k, {"name": r.get("name", ""), "source": r.get("source", ""), "prints": 0, "pages": 0,
                               "color": 0, "bw": 0, "unknown": 0, "amount": 0.0})
         d["name"] = r.get("name") or d["name"]
-        d["prints"] += 1
+        if not r.get("file", "").startswith("("):  # "(rupaye badle)" jaisi line print nahi hai
+            d["prints"] += 1
         n = pages(r)
         if n is None:
-            d["unknown"] += 1
+            if not r.get("file", "").startswith("("):
+                d["unknown"] += 1
         else:
             d["pages"] += n
             d["color" if r.get("color") == "color" else "bw"] += n

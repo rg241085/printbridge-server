@@ -51,7 +51,7 @@ STATUS = {"receiving": "File aa rahi…", "waiting": "Line mein", "printing": "P
 
 
 def open_shop(root, m):
-    win = _single("shop", root, "PrintBridge - Print shop", "820x600")
+    win = _single("shop", root, "PrintBridge - Print shop", "940x600")
     if win is None:
         return
     S = m.CFG["shop"]
@@ -92,12 +92,17 @@ def open_shop(root, m):
         d.grab_set()
         vals = {}
         for i, (k, label) in enumerate([("name", "Shop ka naam"), ("bw_rate", "Black & White ₹ / kaagaz"),
-                                        ("color_rate", "Color ₹ / kaagaz")]):
+                                        ("color_rate", "Color ₹ / kaagaz"),
+                                        ("message", "Customer ke liye sandesh\n(jaise: Lunch 2-3 baje)")]):
             tk.Label(d, text=label, bg="white", font=(F, 10)).grid(row=i, column=0, sticky="w", pady=4)
-            e = ttk.Entry(d, width=28)
-            e.insert(0, str(S.get(k) if k != "name" else (S.get("name") or m.CFG["name"])))
+            e = ttk.Entry(d, width=34)
+            e.insert(0, str(S.get(k, "") if k != "name" else (S.get("name") or m.CFG["name"])))
             e.grid(row=i, column=1, pady=4, padx=(10, 0))
             vals[k] = e
+
+        priv_var = tk.BooleanVar(value=S.get("allow_private", True))
+        ttk.Checkbutton(d, text="Private order lo (customer chahe to file seedha print ho, aap file na dekhein)",
+                        variable=priv_var).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         def ok():
             try:
@@ -108,11 +113,12 @@ def open_shop(root, m):
                 messagebox.showerror("Shop settings", "Rate sahi number mein likhiye (jaise 2 ya 1.5)", parent=d)
                 return
             with m.CFG_LOCK:
-                S.update(name=vals["name"].get().strip()[:40], bw_rate=bw, color_rate=col)
+                S.update(name=vals["name"].get().strip()[:40], bw_rate=bw, color_rate=col,
+                         message=vals["message"].get().strip()[:150], allow_private=priv_var.get())
                 m.save_config()
             refresh_head()
             d.destroy()
-        ttk.Button(d, text="Save", command=ok).grid(row=3, column=1, sticky="e", pady=(10, 0))
+        ttk.Button(d, text="Save", command=ok).grid(row=5, column=1, sticky="e", pady=(10, 0))
 
     def copy_link():
         win.clipboard_clear()
@@ -123,15 +129,15 @@ def open_shop(root, m):
     ttk.Button(hb, text="Poster banao (QR)", command=lambda: make_poster(m, win)).pack(side="left", padx=4)
     ttk.Button(hb, text="Link copy", command=copy_link).pack(side="left", padx=4)
 
-    cols = ("token", "naam", "files", "kaagaz", "rang", "rs", "status")
-    heads = ("Token", "Customer", "Files", "Kaagaz", "Rang", "Rupaye", "Status")
-    widths = (60, 150, 230, 70, 60, 70, 120)
+    cols = ("token", "naam", "files", "kaagaz", "rang", "rs", "status", "note")
+    heads = ("Token", "Customer", "Files", "Kaagaz", "Rang", "Rupaye", "Status", "Customer ka sandesh")
+    widths = (55, 140, 200, 65, 55, 75, 115, 170)
     frame = tk.Frame(win, bg="white")
     frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
     tv = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
     for c, h, w in zip(cols, heads, widths):
         tv.heading(c, text=h)
-        tv.column(c, width=w, anchor="w" if c in ("naam", "files", "status") else "center")
+        tv.column(c, width=w, anchor="w" if c in ("naam", "files", "status", "note") else "center")
     sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
     tv.configure(yscrollcommand=sb.set)
     tv.pack(side="left", fill="both", expand=True)
@@ -145,12 +151,14 @@ def open_shop(root, m):
         known = [f["sheets"] * f["copies"] for f in o["files"] if f.get("sheets") is not None]
         unknown = any(f.get("sheets") is None and f["status"] != "error" for f in o["files"])
         colors = {f["color"] for f in o["files"]}
-        names = ", ".join(f["name"] for f in o["files"])
+        names = (f"[Private] {len(o['files'])} file" if o.get("private")
+                 else ", ".join(f["name"] for f in o["files"]))
         cust = o["customer"] + (f" ({o['mobile']})" if o.get("mobile") else "")
         return (f"#{o['token']}", cust, names[:60] + ("…" if len(names) > 60 else ""),
                 f"{sum(known)}{'+?' if unknown else ''}", "Mix" if len(colors) > 1 else ("Color" if "color" in colors else "B&W"),
-                _money(o["total"]) + ("+?" if not o.get("total_known") else ""),
-                STATUS.get(o["status"], o["status"]) + (" ⚠" if any(f["status"] == "error" for f in o["files"]) else ""))
+                _money(o["total"]) + ("+?" if not o.get("total_known") else "") + (" *" if o.get("amount_override") is not None else ""),
+                STATUS.get(o["status"], o["status"]) + (" ⚠" if any(f["status"] == "error" for f in o["files"]) else ""),
+                o.get("note", ""))
 
     def refresh():
         sel = tv.selection()
@@ -184,6 +192,9 @@ def open_shop(root, m):
         if o["status"] not in ("waiting", "ready"):
             messagebox.showinfo("Print shop", "Ye order abhi print nahi ho sakta (file aa rahi hai ya print chal raha hai)", parent=win)
             return
+        if o["status"] == "ready" and o.get("private"):
+            messagebox.showinfo("Print shop", "Private order ki file print ke baad mita di jaati hai, dobara nahi chhap sakte.", parent=win)
+            return
         if o["status"] == "ready" and not messagebox.askyesno("Print shop", "Ye order pehle chhap chuka hai. Dobara chhaapein?", parent=win):
             return
 
@@ -195,6 +206,10 @@ def open_shop(root, m):
 
     def do_open():
         o = selected()
+        if o and o.get("private"):
+            messagebox.showinfo("Print shop", "Ye PRIVATE order hai. Customer ne file dikhane ki permission nahi di.\n"
+                                              "Ye apne aap print hota hai.", parent=win)
+            return
         if o:
             for f in o["files"][:5]:
                 if os.path.exists(f["path"]):
@@ -203,7 +218,36 @@ def open_shop(root, m):
     def do_done():
         o = selected()
         if o:
-            m.SHOP.set_status(o["id"], "done", "Print le liya gaya")
+            m.shop_done(o["id"])
+
+    def do_move(how):
+        o = selected()
+        if o and not m.SHOP.move(o["id"], how):
+            if o["status"] not in ("waiting", "receiving"):
+                messagebox.showinfo("Print shop", "Sirf line mein khade (abhi tak na chhape) order aage-peeche ho sakte hain.", parent=win)
+
+    def do_amount():
+        o = selected()
+        if not o:
+            return
+        v = simpledialog.askstring("Rupaye badlo", f"Order #{o['token']} ({o['customer']})\n"
+                                   f"Apne aap hisaab: ₹{o.get('calc_total', o['total']):g}\n\n"
+                                   "Kitne rupaye lene hain? (khaali chhodein = apne aap hisaab)",
+                                   parent=win, initialvalue=f"{o['total']:g}")
+        if v is None:
+            return
+        v = v.strip().replace("₹", "")
+        if not v:
+            m.SHOP.set_amount(o["id"], None)
+            return
+        try:
+            amt = float(v)
+            if amt < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Rupaye badlo", "Sahi number likhiye (jaise 50)", parent=win)
+            return
+        m.SHOP.set_amount(o["id"], amt)
 
     def do_remove():
         o = selected()
@@ -213,9 +257,13 @@ def open_shop(root, m):
 
     bb = tk.Frame(win, bg="white")
     bb.pack(fill="x", padx=12, pady=(4, 12))
+    ttk.Button(bb, text="Sabse pehle", command=lambda: do_move("top")).pack(side="left", padx=(0, 2))
+    ttk.Button(bb, text="Upar", width=6, command=lambda: do_move("up")).pack(side="left", padx=2)
+    ttk.Button(bb, text="Neeche", width=7, command=lambda: do_move("down")).pack(side="left", padx=(2, 12))
     ttk.Button(bb, text="Print", command=do_print).pack(side="left", padx=(0, 4))
     ttk.Button(bb, text="File kholiye", command=do_open).pack(side="left", padx=4)
     ttk.Button(bb, text="De diya (khatam)", command=do_done).pack(side="left", padx=4)
+    ttk.Button(bb, text="Rupaye badlo", command=do_amount).pack(side="left", padx=4)
     ttk.Button(bb, text="Hatao", command=do_remove).pack(side="left", padx=4)
     earn_lbl = tk.Label(bb, font=(F, 10, "bold"), fg="#059669", bg="white")
     earn_lbl.pack(side="right")

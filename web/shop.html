@@ -52,6 +52,25 @@
   .total { display:flex; justify-content:space-between; font-size:18px; font-weight:700; border-top:1px dashed #d1d5db; padding-top:10px; margin-top:6px; }
   .hint { font-size:12.5px; color:var(--mut); margin:6px 0 0; line-height:1.5; }
   .hidden { display:none !important; }
+  .fc { background:var(--bg); border-radius:12px; padding:10px; margin-bottom:8px; }
+  .fc .top { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:14px; }
+  .fc .top .n { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .fc .meta { font-size:13px; color:var(--mut); margin-top:2px; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .fc .x { border:0; background:none; color:var(--mut); font-size:20px; padding:0 4px; }
+  .lnk { border:0; background:none; color:var(--c); font-size:13.5px; padding:4px 0; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)); gap:8px; margin-top:8px; max-height:360px; overflow:auto; }
+  .pv { position:relative; border:2px solid #ddd6fe; border-radius:8px; background:#fff; aspect-ratio:.72; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .pv img { max-width:100%; max-height:100%; } .pv.on { border-color:var(--c); } .pv:not(.on) img { opacity:.3; }
+  .pv .no { position:absolute; bottom:3px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.6); color:#fff; font-size:11px; padding:0 6px; border-radius:8px; }
+  .pv .tk { position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid #ddd6fe; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  .pv.on .tk { background:var(--c); border-color:var(--c); color:#fff; }
+  .seg.wrap { flex-wrap:wrap; } .seg.wrap button { flex:1 0 30%; border-bottom:1px solid #e5e7eb; }
+  textarea.t { width:100%; padding:11px; border-radius:10px; border:1px solid #d1d5db; font-size:15px; font-family:inherit; resize:vertical; min-height:56px; }
+  .est { margin-top:14px; background:#f5f3ff; border-radius:12px; padding:12px; display:flex; justify-content:space-between; align-items:center; }
+  .est b { font-size:22px; color:var(--c); } .est small { color:var(--mut); display:block; font-size:12.5px; }
+  .banner { background:#fef3c7; color:#92400e; border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:12px; }
+  .priv { font-size:13px; color:var(--mut); margin:6px 0 0; line-height:1.5; }
+  .pill { display:inline-block; background:#ede9fe; color:var(--c); border-radius:20px; padding:2px 10px; font-size:12.5px; margin-top:6px; }
   .pulse { animation:p 1.4s infinite; } @keyframes p { 50% { opacity:.45; } }
 </style>
 </head>
@@ -63,23 +82,46 @@
   <!-- ===== Order form ===== -->
   <div id="form" class="hidden">
     <section class="card">
+      <div class="banner hidden" id="shopMsg"></div>
       <div class="rates"><div>Black &amp; White<b id="rBW">₹—</b>per kaagaz</div><div>Color<b id="rC">₹—</b>per kaagaz</div></div>
       <label class="r" for="cname">Aapka naam *</label>
       <input class="t" id="cname" maxlength="40" autocomplete="name" placeholder="jaise Rahul">
       <label class="r" for="cmob">Mobile number <small>(zaroori nahi, sirf shop ko dikhega)</small></label>
       <input class="t" id="cmob" maxlength="15" inputmode="tel" autocomplete="tel" placeholder="98xxxxxxxx">
+    </section>
+
+    <section class="card">
+      <b>1. Files</b>
       <label class="pick">📄<b>File chuniye</b><small>PDF, photo, Word, Excel • ek saath kai files</small>
         <input type="file" id="file" multiple accept=".pdf,image/*,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt"></label>
-      <ul class="f" id="list"></ul>
+      <div id="list" style="margin-top:10px"></div>
     </section>
+
     <section class="card">
-      <label class="r" style="margin-top:0">Copies (har file ki)</label>
+      <b>2. Print settings</b>
+      <label class="r">Copies (har file ki)</label>
       <div class="stepper"><button id="minus">−</button><span id="copies">1</span><button id="plus">+</button></div>
       <label class="r">Rang</label>
-      <div class="seg" id="color"><button data-v="bw" class="on">Black &amp; White</button><button data-v="color">Color</button></div>
-      <label class="r">Kaun se page</label>
-      <div class="seg" id="pagesSeg"><button data-v="all" class="on">Saare</button><button data-v="custom">Chuniye</button></div>
-      <input class="t hidden" id="pages" placeholder="jaise 1-3, 5" style="margin-top:8px">
+      <div class="seg" data-k="color"><button data-v="bw" class="on">Black &amp; White</button><button data-v="color">Color</button></div>
+      <label class="r">Ek kaagaz par kitne page</label>
+      <div class="seg" data-k="nup"><button data-v="1" class="on">1 page</button><button data-v="2">2 page</button><button data-v="4">4 page</button></div>
+      <label class="r">Size</label>
+      <div class="seg" data-k="fit"><button data-v="fit" class="on">Kaagaz par fit</button><button data-v="actual">Asli size</button></div>
+      <div id="paperRow" class="hidden"><label class="r">Kaagaz</label><div class="seg wrap" data-k="paper" id="paperSeg"></div></div>
+      <div id="duplexRow" class="hidden"><label class="r">Dono taraf print</label>
+        <div class="seg" data-k="duplex"><button data-v="off" class="on">Nahi</button><button data-v="long">Haan (kitaab jaisa)</button></div></div>
+    </section>
+
+    <section class="card">
+      <b>3. Aur</b>
+      <div id="privRow">
+        <label class="r">Shop wala aapki file dekh sakta hai?</label>
+        <div class="seg" data-k="private"><button data-v="0" class="on">👁 Haan, dekh sakta hai</button><button data-v="1">🔒 Nahi, seedha print</button></div>
+        <p class="priv" id="privHint">Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).</p>
+      </div>
+      <label class="r" for="note">Shop ke liye sandesh <small>(zaroori nahi)</small></label>
+      <textarea class="t" id="note" maxlength="200" placeholder="jaise: spiral binding chahiye, ya staple kar dijiye"></textarea>
+      <div class="est"><div><small>Andaazit kharcha</small><span id="estPages">—</span></div><b id="est">₹0</b></div>
       <button class="btn" id="send" disabled>Shop ko bhejiye</button>
       <div class="bar" id="bar"><div></div></div>
       <div class="msg" id="msg"></div>
@@ -93,6 +135,7 @@
       <div class="token"><small>Aapka token</small><b id="tok">#—</b></div>
       <div class="state" id="state">…</div>
       <div class="sub" id="sub"></div>
+      <div style="text-align:center"><span class="pill hidden" id="privPill">🔒 Private: seedha print, shop file nahi dekhega</span></div>
     </section>
     <section class="card">
       <ul class="f" id="olist"></ul>
@@ -117,41 +160,148 @@
   const saved = () => { try { return JSON.parse(localStorage.getItem(K)) || {}; } catch (e) { return {}; } };
   const store = o => localStorage.setItem(K, JSON.stringify(Object.assign(saved(), o)));
 
-  let files = [], copies = 1, color = "bw", pagesMode = "all", rates = {};
+  let items = [], copies = 1, rates = {};
+  const opt = { color: "bw", nup: "1", fit: "fit", paper: "default", duplex: "off", private: "0" };
+  const PAPER = { default: "Shop ka", a4: "A4", letter: "Letter", legal: "Legal", a3: "A3", a5: "A5" };
+  const IMG = ["jpg", "jpeg", "png", "bmp", "gif", "webp"];
+  const ext = f => (f.name.split(".").pop() || "").toLowerCase();
 
   async function start() {
     const info = await api(`/api/shop/${code}`).catch(() => ({ ok: false, error: "Internet check kijiye" }));
     if (!info.ok) { $("closed").classList.remove("hidden"); $("closedMsg").textContent = "⚠️ " + (info.error || "Shop abhi band hai"); return; }
     rates = info; document.title = info.name + " - Print"; $("shopName").textContent = "🖨 " + info.name;
     $("rBW").textContent = rs(+info.bw_rate); $("rC").textContent = rs(+info.color_rate);
+    if (info.message) { $("shopMsg").textContent = "📢 " + info.message; $("shopMsg").classList.remove("hidden"); }
+    if (!info.allow_private) $("privRow").classList.add("hidden");
+    const caps = info.caps || {};
+    if (caps.papers && caps.papers.length) {
+      $("paperRow").classList.remove("hidden");
+      $("paperSeg").innerHTML = ["default", ...caps.papers].map(k => `<button data-v="${k}" class="${k === "default" ? "on" : ""}">${PAPER[k]}</button>`).join("");
+    }
+    if (caps.duplex) $("duplexRow").classList.remove("hidden");
     const s = saved();
     $("cname").value = s.name || ""; $("cmob").value = s.mobile || "";
     if (s.order) { showStatus(); } else $("form").classList.remove("hidden");
   }
 
-  // ---------- form
-  function renderList() {
-    $("list").innerHTML = files.map((f, i) => `<li><span class="n">${esc(f.name)}</span><span class="s" id="s${i}">${fmt(f.size)}</span><button class="x" data-i="${i}">×</button></li>`).join("");
-    $("send").disabled = !files.length;
+  // ---------- pdf.js (preview + page ginti)
+  let pdfjs = null;
+  async function loadPdfJs() {
+    if (pdfjs) return pdfjs;
+    await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "/pdfjs/pdf.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.js";
+    return pdfjs = window.pdfjsLib;
   }
-  $("list").onclick = e => { const i = e.target.dataset.i; if (i !== undefined) { files.splice(+i, 1); renderList(); } };
-  $("file").onchange = e => {
-    const bad = [];
-    for (const f of e.target.files) (ALLOWED.includes((f.name.split(".").pop() || "").toLowerCase()) ? files : bad).push(f);
-    e.target.value = ""; renderList();
-    bad.length ? msg("err", "Ye files nahi chalengi: " + bad.map(f => f.name).join(", ")) : $("msg").className = "msg";
-  };
-  const seg = (id, set) => $(id).onclick = e => { const b = e.target.closest("button"); if (!b) return; set(b.dataset.v); $(id).querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); };
-  seg("color", v => color = v);
-  seg("pagesSeg", v => { pagesMode = v; $("pages").classList.toggle("hidden", v !== "custom"); if (v === "custom") $("pages").focus(); });
-  $("minus").onclick = () => { copies = Math.max(1, copies - 1); $("copies").textContent = copies; };
-  $("plus").onclick = () => { copies = Math.min(50, copies + 1); $("copies").textContent = copies; };
+  async function inspect(it) {   // page gino
+    const e = ext(it.file);
+    if (IMG.includes(e)) { it.n = 1; it.sel = new Set([0]); it.thumbs = [URL.createObjectURL(it.file)]; return; }
+    if (e !== "pdf") { it.n = null; return; }
+    try {
+      const lib = await loadPdfJs();
+      it.doc = await lib.getDocument({ data: await it.file.arrayBuffer(), password: it.password || "" }).promise;
+      it.n = it.doc.numPages; it.sel = new Set([...Array(it.n).keys()]); it.thumbs = [];
+      it.locked = false;
+    } catch (err) {
+      if (err && err.name === "PasswordException") { it.locked = true; it.n = null; }
+      else it.n = null;
+    }
+  }
+  async function renderThumbs(it, idx) {
+    const grid = document.querySelector(`#fc${idx} .grid`); if (!grid) return;
+    grid.innerHTML = [...Array(it.n).keys()].map(i => `<div class="pv ${it.sel.has(i) ? "on" : ""}" data-p="${i}"><img ${it.thumbs[i] ? `src="${it.thumbs[i]}"` : ""}><span class="tk">✔</span><span class="no">${i + 1}</span></div>`).join("");
+    if (!it.doc) return;
+    for (let i = 0; i < Math.min(it.n, 150); i++) {
+      if (it.thumbs[i]) continue;
+      const page = await it.doc.getPage(i + 1), v1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 150 / v1.width });
+      const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+      await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+      it.thumbs[i] = c.toDataURL("image/jpeg", 0.65);
+      const img = grid.querySelector(`[data-p="${i}"] img`); if (img) img.src = it.thumbs[i]; else return;
+    }
+  }
+  function rangesStr(set) {
+    const a = [...set].sort((x, y) => x - y).map(i => i + 1), out = [];
+    for (let k = 0; k < a.length; k++) { let j = k; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(j > k ? `${a[k]}-${a[j]}` : `${a[k]}`); k = j; }
+    return out.join(", ");
+  }
 
-  function upload(file, orderId, opts) {
+  // ---------- files list
+  function renderList() {
+    $("list").innerHTML = items.map((it, i) => {
+      let meta;
+      if (it.locked) meta = `🔒 Password wali PDF <button class="lnk" data-pw="${i}">Password daaliye</button>`;
+      else if (it.n == null) meta = it.loading ? "Page gin rahe hain…" : "Page shop par gine jaayenge";
+      else meta = `${it.sel.size} / ${it.n} page chune${it.n > 1 ? ` <button class="lnk" data-pv="${i}">${it.open ? "▲ Preview band" : "👁 Preview / page chuniye"}</button>` : ""}`;
+      return `<div class="fc" id="fc${i}"><div class="top"><span class="n">📄 ${esc(it.file.name)}</span><button class="x" data-x="${i}">×</button></div>
+        <div class="meta"><span>${fmt(it.file.size)}</span><span>${meta}</span></div>
+        ${it.open && it.n ? `<div><button class="lnk" data-all="${i}">Sab chuniye</button> · <button class="lnk" data-none="${i}">Koi nahi</button></div><div class="grid"></div>` : ""}</div>`;
+    }).join("");
+    items.forEach((it, i) => { if (it.open && it.n) renderThumbs(it, i); });
+    $("send").disabled = !items.length;
+    estimate();
+  }
+  $("list").onclick = async e => {
+    const t = e.target, d = t.dataset;
+    if (d.x !== undefined) { items.splice(+d.x, 1); return renderList(); }
+    if (d.pv !== undefined) { items[+d.pv].open = !items[+d.pv].open; return renderList(); }
+    if (d.all !== undefined) { const it = items[+d.all]; it.sel = new Set([...Array(it.n).keys()]); return renderList(); }
+    if (d.none !== undefined) { items[+d.none].sel = new Set(); return renderList(); }
+    if (d.pw !== undefined) {
+      const it = items[+d.pw], pw = prompt(`"${it.file.name}" ka password:`);
+      if (pw) { it.password = pw; it.loading = true; renderList(); await inspect(it); it.loading = false; if (it.locked) msg("err", "Password galat hai"); renderList(); }
+      return;
+    }
+    const pv = t.closest(".pv");
+    if (pv) {
+      const i = +pv.closest(".fc").id.slice(2), it = items[i], p = +pv.dataset.p;
+      it.sel.has(p) ? it.sel.delete(p) : it.sel.add(p);
+      pv.classList.toggle("on", it.sel.has(p));
+      pv.closest(".fc").querySelector(".meta span:last-child").firstChild.textContent = `${it.sel.size} / ${it.n} page chune `;
+      estimate();
+    }
+  };
+  $("file").onchange = async e => {
+    const bad = [], add = [];
+    for (const f of e.target.files) (ALLOWED.includes(ext(f)) ? add : bad).push(f);
+    e.target.value = "";
+    bad.length ? msg("err", "Ye files nahi chalengi: " + bad.map(f => f.name).join(", ")) : $("msg").className = "msg";
+    const fresh = add.map(f => ({ file: f, n: null, sel: new Set(), thumbs: [], loading: true, open: false }));
+    items.push(...fresh); renderList();
+    for (const it of fresh) { await inspect(it); it.loading = false; }
+    if (items.length === 1 && items[0].n > 1) items[0].open = true;  // ek hi file ho to preview khula
+    renderList();
+  };
+
+  // ---------- settings
+  document.querySelectorAll(".seg[data-k]").forEach(sg => sg.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    opt[sg.dataset.k] = b.dataset.v;
+    sg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    if (sg.dataset.k === "private") $("privHint").textContent = b.dataset.v === "1"
+      ? "🔒 File apne aap seedha print hogi. Shop wala na file khol payega, na uska naam dekh payega. Print hote hi file mita di jaayegi."
+      : "Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).";
+    estimate();
+  });
+  $("minus").onclick = () => { copies = Math.max(1, copies - 1); $("copies").textContent = copies; estimate(); };
+  $("plus").onclick = () => { copies = Math.min(50, copies + 1); $("copies").textContent = copies; estimate(); };
+
+  function estimate() {
+    const rate = +(opt.color === "color" ? rates.color_rate : rates.bw_rate) || 0, nup = +opt.nup;
+    let sheets = 0, unknown = 0;
+    for (const it of items) { if (it.n == null) unknown++; else sheets += Math.ceil(it.sel.size / nup); }
+    const total = sheets * copies * rate;
+    $("est").textContent = rs(total) + (unknown ? " +" : "");
+    $("estPages").textContent = items.length ? `${sheets * copies} kaagaz${unknown ? ` • ${unknown} file ke page shop par ginenge` : ""}` : "File chuniye";
+  }
+
+  function upload(it, orderId) {
     return new Promise(res => {
+      const pages = it.n == null || it.sel.size === it.n ? "all" : rangesStr(it.sel);
       const fd = new FormData();
-      fd.append("file", file); fd.append("order_id", orderId); fd.append("customer", $("cname").value.trim());
-      fd.append("mobile", $("cmob").value.trim()); fd.append("copies", copies); fd.append("options", JSON.stringify(opts));
+      fd.append("file", it.file); fd.append("order_id", orderId); fd.append("customer", $("cname").value.trim());
+      fd.append("mobile", $("cmob").value.trim()); fd.append("copies", copies);
+      fd.append("options", JSON.stringify({ pages, color: opt.color, nup: +opt.nup, fit: opt.fit, paper: opt.paper, duplex: opt.duplex, password: it.password || "" }));
+      fd.append("note", $("note").value.trim()); fd.append("private", opt.private);
       const x = new XMLHttpRequest(); x.open("POST", `/api/shop/${code}/files`);
       x.upload.onprogress = e => { if (e.lengthComputable) $("bar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%"; };
       x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch (e) {} res(x.status === 200 && j.ok ? { ok: true, token: j.token } : { ok: false, error: j.error || "Error " + x.status }); };
@@ -162,26 +312,24 @@
   $("send").onclick = async () => {
     const name = $("cname").value.trim();
     if (!name) { $("cname").focus(); return msg("err", "Pehle apna naam likhiye"); }
-    let pages = "all";
-    if (pagesMode === "custom") {
-      pages = $("pages").value.trim();
-      if (!/^\s*\d+\s*(-\s*\d*\s*)?(,\s*\d+\s*(-\s*\d*\s*)?)*,?\s*$/.test(pages)) return msg("err", "Page number sahi likhiye, jaise 1-3, 5");
-    }
+    const empty = items.find(it => it.n != null && it.sel.size === 0);
+    if (empty) return msg("err", `"${empty.file.name}" ka koi page nahi chuna`);
+    const lockedF = items.find(it => it.locked);
+    if (lockedF) return msg("err", `"${lockedF.file.name}" ka password pehle daaliye`);
     store({ name, mobile: $("cmob").value.trim() });
     const orderId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "" + Math.random()).replace(/[^a-z0-9]/gi, "").slice(0, 32);
     $("send").disabled = true; $("bar").style.display = "block";
     let token = null; const errs = [];
-    for (let i = 0; i < files.length; i++) {
-      $("bar").firstElementChild.style.width = "0"; $("s" + i).textContent = "⬆️";
-      msg("info", `${i + 1}/${files.length}: ${files[i].name} bhej rahe hain…`);
-      const r = await upload(files[i], orderId, { pages, color });
-      $("s" + i).textContent = r.ok ? "✅" : "❌";
-      if (r.ok) token = r.token; else errs.push(`${files[i].name}: ${r.error}`);
+    for (let i = 0; i < items.length; i++) {
+      $("bar").firstElementChild.style.width = "0";
+      msg("info", `${i + 1}/${items.length}: ${items[i].file.name} bhej rahe hain…`);
+      const r = await upload(items[i], orderId);
+      if (r.ok) token = r.token; else errs.push(`${items[i].file.name}: ${r.error}`);
     }
     $("bar").style.display = "none";
     if (!token) { $("send").disabled = false; return msg("err", errs.join("\n")); }
     store({ order: orderId, token, errs });
-    files = []; renderList();
+    items = []; renderList();
     showStatus();
   };
 
@@ -203,12 +351,18 @@
       $("sub").textContent = r.status === "waiting" ? (r.ahead ? `Aapke aage ${r.ahead} order hain` : "Aapka number agla hai") : (r.message && r.status !== "ready" ? r.message : sub);
       $("olist").innerHTML = r.files.map(f => `<li><span class="n">📄 ${esc(f.name)}</span><span class="s">${f.status === "error" ? "❌ " + esc(f.message || "") : f.sheets == null ? (f.status === "receiving" ? "…" : "? kaagaz") : `${f.sheets} × ${f.copies} ${f.color === "color" ? "🎨" : "⚫"} = ${rs(f.price)}`}</span></li>`).join("")
         + (s.errs && s.errs.length ? s.errs.map(e => `<li><span class="n">❌ ${esc(e)}</span></li>`).join("") : "");
-      $("otot").textContent = rs(r.total) + (r.total_known ? "" : " +");
+      $("otot").textContent = r.status === "receiving" ? "gin rahe hain…" : rs(r.total) + (r.total_known ? "" : " +") + (r.discount ? " (shop ne tay kiya)" : "");
+      $("privPill").classList.toggle("hidden", !r.private);
+      document.title = (r.status === "ready" ? "✅ Taiyaar! " : `#${s.token} `) + (rates.name || "Print");
       $("payHint").textContent = r.total_known ? "Paisa counter par dijiye." : "Kuch file ke page counter par gine jaayenge.";
       const active = ["receiving", "waiting", "printing", "ready"].includes(r.status);
       $("cancel").classList.toggle("hidden", !["receiving", "waiting"].includes(r.status));
       $("again").classList.toggle("hidden", active && r.status !== "ready");
-      if (r.status === "ready" && lastState !== "ready" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      if (r.status === "ready" && lastState !== "ready" && lastState !== "") {
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
+        try { const a = new AudioContext(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination);
+              o.frequency.value = 880; g.gain.value = 0.15; o.start(); setTimeout(() => { o.frequency.value = 1320; }, 180); setTimeout(() => { o.stop(); a.close(); }, 420); } catch (e) {}
+      }
       lastState = r.status;
       if (!active) { clearTimeout(timer); return; }
     } else if (r && r.status === 404 && r.error && r.error.includes("Order")) {

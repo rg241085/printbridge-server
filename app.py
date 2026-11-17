@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "1.1"
+VERSION = "1.2"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -429,6 +429,7 @@ async def shop_file(
     request: Request, code: str,
     file: UploadFile = File(...), order_id: str = Form(...), customer: str = Form(""),
     mobile: str = Form(""), copies: int = Form(1), options: str = Form("{}"),
+    note: str = Form(""), private: str = Form(""),
 ):
     ip, now = client_ip(request), time.time()
     recent = [t for t in SHOP_UPLOADS.get(ip, []) if now - t < 600]
@@ -465,7 +466,8 @@ async def shop_file(
         res = await agent.rpc("shop_job", {
             "job_id": job_id, "dl_key": job["dl_key"], "filename": name, "size": size, "order_id": order_id[:40],
             "customer": customer.strip()[:40], "mobile": mobile.strip()[:15],
-            "copies": max(1, min(int(copies), 50)), "opts": opts})
+            "copies": max(1, min(int(copies), 50)), "opts": opts,
+            "note": note.strip()[:200], "private": private in ("1", "true", "yes")})
     except HTTPException:
         _drop_job(job_id)
         raise

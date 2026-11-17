@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v1.1)
+PrintBridge - laptop wala program (v1.2)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "1.1"
+VERSION = "1.2"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -102,7 +102,8 @@ def load_config():
     cfg.setdefault("ask_approval", True)
     cfg.setdefault("local_key", secrets.token_urlsafe(12))  # bina internet print ki chaabi (QR mein)
     cfg.setdefault("shop", {})
-    for k, v in {"enabled": False, "name": "", "bw_rate": 2, "color_rate": 10, "auto_print": False}.items():
+    for k, v in {"enabled": False, "name": "", "bw_rate": 2, "color_rate": 10, "auto_print": False,
+                 "message": "", "allow_private": True}.items():
         cfg["shop"].setdefault(k, v)
     cfg.setdefault("rules", {})  # phone (hash) -> {"no_color": True/False, "daily_limit": kaagaz}  # naya phone judne se pehle laptop par "Allow?" poochho
     if not cfg.get("server_url"):
@@ -404,6 +405,19 @@ def shop_print(order_id, printer=None):
     return ok, err
 
 
+def shop_done(order_id):
+    """Customer ne print le liya. Rupaye badle gaye the to report mein farq jodo."""
+    o = SHOP.get(order_id)
+    if not o:
+        return
+    if o.get("amount_override") is not None and o["status"] in ("ready", "waiting"):
+        diff = round(o["amount_override"] - o.get("calc_total", 0), 2)
+        if diff:
+            us.log("shop", "shop:" + o["customer"], f"#{o['token']} {o['customer']}", "(rupaye badle)", None, 1, "",
+                   "", "done", diff)
+    SHOP.set_status(order_id, "done", "Print le liya gaya")
+
+
 def valid_order_id(x):
     return isinstance(x, str) and 16 <= len(x) <= 40 and x.replace("-", "").replace("_", "").isalnum()
 
@@ -412,7 +426,15 @@ def rpc_shop_info(p):
     s = CFG["shop"]
     if not s.get("enabled"):
         return {"ok": False, "error": "Ye shop abhi online order nahi le rahi. Counter par baat kijiye."}
-    return {"ok": True, "name": shop_name(), "bw_rate": s["bw_rate"], "color_rate": s["color_rate"]}
+    caps = {"duplex": False, "papers": []}
+    try:
+        names, default, _, allcaps = pb.list_printers()
+        prn = CFG.get("printer") if CFG.get("printer") in names else default
+        caps = allcaps.get(prn, caps)
+    except Exception:
+        pass
+    return {"ok": True, "name": shop_name(), "bw_rate": s["bw_rate"], "color_rate": s["color_rate"],
+            "message": s.get("message", ""), "allow_private": s.get("allow_private", True), "caps": caps}
 
 
 def rpc_shop_job(p):
@@ -423,9 +445,12 @@ def rpc_shop_job(p):
     name = str(p.get("filename", "file"))
     if os.path.splitext(name)[1].lower() not in pb.ALLOWED_EXT:
         return {"ok": False, "error": f"'{name}' print nahi ho sakti"}
+    private = bool(p.get("private"))
+    if private and not CFG["shop"].get("allow_private", True):
+        return {"ok": False, "error": "Ye shop private (seedha print) order nahi leti"}
     try:
         o, f = SHOP.start_file(p["order_id"], str(p.get("customer", "")).strip(), str(p.get("mobile", "")).strip(),
-                               name, p.get("copies", 1), p.get("opts"))
+                               name, p.get("copies", 1), p.get("opts"), str(p.get("note", "")), private)
     except pb.PrintError as e:
         return {"ok": False, "error": str(e)}
 
