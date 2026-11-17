@@ -195,16 +195,16 @@
   }
 
   // ---------------------------------------------------------------- editor
-  let ed = null;  // { i, corners, rot, filter, box }
-  function openEditor(i) {
-    const p = pages[i];
-    ed = { i, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter };
-    $("edTitle").textContent = `Page ${i + 1} / ${pages.length}`;
+  let ed = null;  // { list, i, corners, rot, filter, box, onDone }
+  function openEditor(i, list = pages, onDone = renderGrid) {
+    const p = list[i];
+    ed = { list, i, onDone, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter };
+    $("edTitle").textContent = list === pages ? `Page ${i + 1} / ${pages.length}` : (i === 0 ? "Card: aage ka hissa" : "Card: peeche ka hissa");
     $("editor").classList.remove("hidden");
     requestAnimationFrame(drawEditor);
   }
   function drawEditor() {
-    const p = pages[ed.i], st = $("edStage"), cv = $("edCanvas");
+    const p = ed.list[ed.i], st = $("edStage"), cv = $("edCanvas");
     const sw = st.clientWidth - 40, sh = st.clientHeight - 40;
     const s = Math.min(sw / p.src.width, sh / p.src.height);
     cv.width = Math.round(p.src.width * s); cv.height = Math.round(p.src.height * s);
@@ -242,54 +242,76 @@
   $("edFull").onclick = () => { ed.corners = [[0, 0], [1, 0], [1, 1], [0, 1]]; placeHandles(); };
   $("edDel").onclick = () => {
     if (!confirm("Ye page hata dein?")) return;
-    const [p] = pages.splice(ed.i, 1); if (p.url) URL.revokeObjectURL(p.url);
-    closeEditor(); renderGrid();
+    const { list, i, onDone } = ed;
+    const p = list[i]; if (p && p.url) URL.revokeObjectURL(p.url);
+    if (list === pages) list.splice(i, 1); else list[i] = null;
+    closeEditor(); onDone();
   };
   $("edClose").onclick = closeEditor;
   $("edDone").onclick = async () => {
-    const p = pages[ed.i];
+    const { list, i, onDone } = ed, p = list[i];
     Object.assign(p, { corners: ed.corners, rot: ed.rot, filter: ed.filter });
     $("edDone").textContent = "…";
     await new Promise(r => setTimeout(r, 30));
     await processPage(p);
     $("edDone").textContent = "✓ Theek hai";
-    closeEditor(); renderGrid();
+    closeEditor(); onDone();
   };
   function closeEditor() { $("editor").classList.add("hidden"); ed = null; }
   window.addEventListener("resize", () => { if (ed) drawEditor(); });
 
   // ---------------------------------------------------------------- PDF banana (bina kisi library ke)
-  async function makePdf() {
+  // layout: [{ W, H, imgs: [{ blob, w, h }], draws: [{ img, x, y, w, h }], lines: [{ x, y, w, h }] }]  (points, neeche-baayein se)
+  async function writePdf(layout, fileName) {
     const enc = new TextEncoder(), parts = [], offsets = [];
-    let len = 0;
+    let len = 0, next = 3;
     const push = x => { const b = typeof x === "string" ? enc.encode(x) : x; parts.push(b); len += b.length; };
     const obj = (n, body) => { offsets[n] = len; push(`${n} 0 obj\n`); body(); push("\nendobj\n"); };
+    const plan = layout.map(pg => { const pid = next, cid = next + 1, iids = pg.imgs.map((_, k) => next + 2 + k); next += 2 + pg.imgs.length; return { pg, pid, cid, iids }; });
     push("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
-    const n = pages.length, kids = [];
-    for (let i = 0; i < n; i++) kids.push(`${3 + i * 3} 0 R`);
     obj(1, () => push("<< /Type /Catalog /Pages 2 0 R >>"));
-    obj(2, () => push(`<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${n} >>`));
-    for (let i = 0; i < n; i++) {
-      const p = pages[i], pid = 3 + i * 3, cid = pid + 1, iid = pid + 2;
-      const land = p.w > p.h;
-      const PW = land ? 842 : 595, PH = land ? 595 : 842, m = 0;   // A4 points
-      const s = Math.min((PW - 2 * m) / p.w, (PH - 2 * m) / p.h);
-      const dw = p.w * s, dh = p.h * s, dx = (PW - dw) / 2, dy = (PH - dh) / 2;
-      const jpg = new Uint8Array(await p.blob.arrayBuffer());
-      const content = `q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${dx.toFixed(2)} ${dy.toFixed(2)} cm /Im0 Do Q`;
-      obj(pid, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /XObject << /Im0 ${iid} 0 R >> >> /Contents ${cid} 0 R >>`));
+    obj(2, () => push(`<< /Type /Pages /Kids [${plan.map(p => `${p.pid} 0 R`).join(" ")}] /Count ${plan.length} >>`));
+    const f = v => v.toFixed(2);
+    for (const { pg, pid, cid, iids } of plan) {
+      let content = pg.draws.map(d => `q ${f(d.w)} 0 0 ${f(d.h)} ${f(d.x)} ${f(d.y)} cm /Im${d.img} Do Q`).join("\n");
+      if (pg.lines && pg.lines.length)
+        content += "\nq 0.6 G 0.6 w [4 3] 0 d " + pg.lines.map(l => `${f(l.x)} ${f(l.y)} ${f(l.w)} ${f(l.h)} re S`).join(" ") + " Q";
+      const xo = iids.map((id, k) => `/Im${k} ${id} 0 R`).join(" ");
+      obj(pid, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pg.W} ${pg.H}] /Resources << /XObject << ${xo} >> >> /Contents ${cid} 0 R >>`));
       obj(cid, () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
-      obj(iid, () => {
-        push(`<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);
-        push(jpg); push("\nendstream");
-      });
+      for (let k = 0; k < pg.imgs.length; k++) {
+        const im = pg.imgs[k], jpg = new Uint8Array(await im.blob.arrayBuffer());
+        obj(iids[k], () => {
+          push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);
+          push(jpg); push("\nendstream");
+        });
+      }
     }
-    const total = 3 + n * 3, xref = len;
-    let x = `xref\n0 ${total}\n0000000000 65535 f \n`;
-    for (let k = 1; k < total; k++) x += String(offsets[k]).padStart(10, "0") + " 00000 n \n";
-    push(x + `trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
-    const name = ($("scanName").value.trim() || "Scan").replace(/[\\/:*?"<>|]+/g, "_") + ".pdf";
-    return new File(parts, name, { type: "application/pdf" });
+    const xref = len;
+    let x = `xref\n0 ${next}\n0000000000 65535 f \n`;
+    for (let k = 1; k < next; k++) x += String(offsets[k]).padStart(10, "0") + " 00000 n \n";
+    push(x + `trailer\n<< /Size ${next} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new File(parts, fileName.replace(/[\\/:*?"<>|]+/g, "_"), { type: "application/pdf" });
+  }
+
+  function makePdf() {
+    const layout = pages.map(p => {
+      const land = p.w > p.h, W = land ? 842 : 595, H = land ? 595 : 842;  // A4 (points)
+      const s = Math.min(W / p.w, H / p.h), w = p.w * s, h = p.h * s;
+      return { W, H, imgs: [{ blob: p.blob, w: p.w, h: p.h }], draws: [{ img: 0, x: (W - w) / 2, y: (H - h) / 2, w, h }] };
+    });
+    return writePdf(layout, ($("scanName").value.trim() || "Scan") + ".pdf");
+  }
+
+  async function sharePdf(file, msgFn) {
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: file.name }); return; }
+    } catch (e) { if (e.name === "AbortError") return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file); a.download = file.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    msgFn("ok", `✅ ${file.name} download ho gayi`);
   }
 
   $("scanPrint").onclick = async () => {
@@ -299,22 +321,93 @@
     catch (e) { smsg("err", "PDF nahi ban paayi"); }
     finally { $("scanPrint").disabled = false; }
   };
-  $("scanShare").onclick = async () => {
-    if (!pages.length) return;
-    const file = await makePdf();
-    try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: file.name });
-        return;
+  $("scanShare").onclick = async () => { if (pages.length) sharePdf(await makePdf(), smsg); };
+
+  // ---------------------------------------------------------------- ID card mode
+  const CARD_MM = [85.6, 54], MM = 72 / 25.4;          // ID-1 card size (Aadhaar, PAN, DL, ATM card)
+  const CARD_PX = [1011, 638];                           // 300 DPI par card
+  const idPages = [null, null];                          // [aage, peeche]
+  let idSets = 1;
+  function idMsg(type, text) { PB.msg($("idMsg"), type, text); }
+  $("openId").onclick = () => { PB.show("id"); renderId(); };
+  $("idBack").onclick = () => PB.show("main");
+
+  async function cardJpeg(page) {
+    // Kone theek kiya hua page -> bilkul card ke naap (85.6 x 54) mein, aada (landscape)
+    const bmp = await createImageBitmap(page.blob);
+    const c = document.createElement("canvas"); c.width = CARD_PX[0]; c.height = CARD_PX[1];
+    const x = c.getContext("2d"); x.imageSmoothingQuality = "high";
+    if (bmp.height > bmp.width) {  // khadi photo -> ghuma do
+      x.translate(c.width / 2, c.height / 2); x.rotate(-Math.PI / 2);
+      x.drawImage(bmp, -c.height / 2, -c.width / 2, c.height, c.width);
+    } else x.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close && bmp.close();
+    return new Promise(res => c.toBlob(res, "image/jpeg", 0.9));
+  }
+  async function renderId() {
+    for (const side of [0, 1]) {
+      const p = idPages[side], el = $("idPrev" + side);
+      if (p) {
+        p.card = await cardJpeg(p);
+        if (p.cardUrl) URL.revokeObjectURL(p.cardUrl);
+        p.cardUrl = URL.createObjectURL(p.card);
+        el.innerHTML = `<img src="${p.cardUrl}" alt="">`; el.classList.add("has");
+      } else {
+        el.innerHTML = `<span>${side ? "Peeche ka hissa <small>(zaroori nahi)</small>" : "Aage ka hissa"}</span>`; el.classList.remove("has");
       }
-    } catch (e) { if (e.name === "AbortError") return; }
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(file); a.download = file.name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    smsg("ok", `✅ ${file.name} download ho gayi`);
+    }
+    const any = idPages.some(Boolean);
+    $("idPrint").disabled = $("idShare").disabled = !any;
+    document.querySelectorAll("#idSets button").forEach(b => b.classList.toggle("on", +b.dataset.v === idSets));
+  }
+  document.querySelectorAll('#idScreen input[type=file]').forEach(inp => inp.onchange = async e => {
+    const f = e.target.files[0], side = +e.target.dataset.side; e.target.value = "";
+    if (!f) return;
+    try {
+      const page = { src: await fileToCanvas(f), corners: [[0, 0], [1, 0], [1, 1], [0, 1]], rot: 0, filter: "orig" };
+      await processPage(page);
+      idPages[side] = page;
+      await renderId();
+      openEditor(side, idPages, renderId);
+    } catch (err) { idMsg("err", "Photo khul nahi paayi"); }
+  });
+  ["idPrev0", "idPrev1"].forEach((id, side) => $(id).onclick = () => { if (idPages[side]) openEditor(side, idPages, renderId); });
+  $("idSets").onclick = e => { const b = e.target.closest("button"); if (b) { idSets = +b.dataset.v; renderId(); } };
+
+  function idLayout() {
+    // A4 par card(s) asli size mein. Har set = aage + uske neeche peeche. 2/4 set: 2 column.
+    const W = 595, H = 842, cw = CARD_MM[0] * MM, ch = CARD_MM[1] * MM, gap = 8 * MM;
+    const sides = idPages.filter(Boolean);
+    const imgs = sides.map(p => ({ blob: p.card, w: CARD_PX[0], h: CARD_PX[1] }));
+    const setH = sides.length * ch + (sides.length - 1) * 4 * MM;
+    const cols = idSets === 1 ? 1 : 2, rows = idSets === 4 ? 2 : 1;
+    const totalW = cols * cw + (cols - 1) * gap, totalH = rows * setH + (rows - 1) * gap;
+    const x0 = (W - totalW) / 2, top = H - 15 * MM;  // upar 15 mm chhod kar
+    const draws = [], lines = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      sides.forEach((_, k) => {
+        const x = x0 + c * (cw + gap), y = top - r * (setH + gap) - (k + 1) * ch - k * 4 * MM;
+        draws.push({ img: k, x, y, w: cw, h: ch });
+        lines.push({ x, y, w: cw, h: ch });
+      });
+    }
+    return [{ W, H, imgs, draws, lines }];
+  }
+  function idName() {
+    const d = new Date(), z = n => String(n).padStart(2, "0");
+    return `IDcard_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.pdf`;
+  }
+  $("idPrint").onclick = async () => {
+    if (!idPages.some(Boolean)) return;
+    $("idPrint").disabled = true;
+    try {
+      PB.printFile(await writePdf(idLayout(), idName()), { fit: "actual", nup: "1" },
+        "🪪 ID card taiyaar hai. Asli size ke liye \"Asli size\" chun liya gaya hai. \"Print karein\" dabaiye.");
+    } catch (e) { idMsg("err", "PDF nahi ban paayi"); }
+    finally { $("idPrint").disabled = false; }
   };
+  $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };
 
   // test ke liye
-  window.PBScan = { pages, addImages, makePdf, processPage, openEditor };
+  window.PBScan = { pages, idPages, addImages, makePdf, processPage, openEditor, idLayout, writePdf };
 })();

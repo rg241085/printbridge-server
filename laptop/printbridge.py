@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v0.8)
+PrintBridge - laptop wala program (v0.9)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -28,7 +28,7 @@ from datetime import datetime
 import printer_backend as pb
 import scanner as sc
 
-VERSION = "0.8"
+VERSION = "0.9"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))

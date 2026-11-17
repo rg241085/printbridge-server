@@ -1,5 +1,5 @@
 """
-PrintBridge - printing ka hissa (v0.7)
+PrintBridge - printing ka hissa (v0.9)
 
 Har file ko "pages" (images) mein badal kar chhaapte hain, taaki saari settings har file par chalein:
   - Photo (jpg/png/...)      -> 1 page
@@ -15,6 +15,7 @@ Print settings (opts):
   reverse   : True/False       (aakhri page pehle)
   paper     : "default" | "a4" | "letter" | "legal" | "a3" | "a5"
   duplex    : "off" | "long" | "short"  (dono taraf; sirf jin printers mein suvidha ho)
+  password  : password wali PDF ka password (kahin save nahi hota)
 
 Linux/Mac par: CUPS ka `lp` (settings: pages, bw, nup, reverse ke lp options).
 Test mode (PRINTBRIDGE_TEST=1): printer ki jagah "test_prints" folder mein har kaagaz ki PNG.
@@ -42,7 +43,7 @@ A4 = (2480, 3508)  # 300 DPI par A4 (pixels)
 TEST_PRINTER = "Test Printer (sirf folder me save)"
 
 DEFAULT_OPTS = {"pages": "all", "color": "color", "nup": 1, "fit": "fit", "reverse": False,
-                "paper": "default", "duplex": "off"}
+                "paper": "default", "duplex": "off", "password": ""}
 PAPERS = {"a4": 9, "letter": 1, "legal": 5, "a3": 8, "a5": 11}  # Windows DMPAPER_* numbers
 
 
@@ -70,6 +71,8 @@ def clean_opts(opts):
     o["reverse"] = bool(opts.get("reverse"))
     o["paper"] = opts.get("paper") if opts.get("paper") in PAPERS else "default"
     o["duplex"] = opts.get("duplex") if opts.get("duplex") in ("long", "short") else "off"
+    pw = opts.get("password")
+    o["password"] = pw[:200] if isinstance(pw, str) else ""
     return o
 
 
@@ -113,7 +116,7 @@ def select_pages(spec, n):
 class Doc:
     """Kisi bhi file ke pages: count aur render(i) -> PIL image."""
 
-    def __init__(self, path, ext):
+    def __init__(self, path, ext, password=""):
         self.ext = ext
         self.pdf = None
         self.img = None
@@ -127,9 +130,12 @@ class Doc:
         else:
             import pypdfium2 as pdfium
             try:
-                self.pdf = pdfium.PdfDocument(path)
+                self.pdf = pdfium.PdfDocument(path, password=password or None)
             except Exception as e:
-                raise PrintError("PDF khul nahi paayi (shayad kharab ya password wali hai)") from e
+                if "password" in str(e).lower():
+                    raise PrintError("Ye PDF password wali hai. Phone app mein file chunkar sahi password daaliye."
+                                     if not password else "PDF ka password galat hai") from e
+                raise PrintError("PDF khul nahi paayi (shayad file kharab hai)") from e
             self.count = len(self.pdf)
             if self.count == 0:
                 raise PrintError("PDF mein koi page nahi hai")
@@ -350,7 +356,7 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=N
         _win_shell_print(path, printer, copies)
         return f"{copies} copy '{printer}' par bhej di gayi{note}"
 
-    doc = Doc(work, ext)
+    doc = Doc(work, ext, opts["password"])
     try:
         select_pages(opts["pages"], doc.count)  # galat range ho to print shuru hone se pehle hi bata do
         if TEST_MODE:
@@ -446,6 +452,11 @@ def _win_draw(printer, title, make_sheets, copies, opts, cancel=None, spool=None
         ph = hdc.GetDeviceCaps(win32con.VERTRES)
         dpx = hdc.GetDeviceCaps(win32con.LOGPIXELSX)
         dpy = hdc.GetDeviceCaps(win32con.LOGPIXELSY)
+        # Poore kaagaz ka naap aur chhapne layak hisse ki shuruaat (printer kinaare par nahi chhaap pata)
+        fw = hdc.GetDeviceCaps(110) or pw   # PHYSICALWIDTH
+        fh = hdc.GetDeviceCaps(111) or ph   # PHYSICALHEIGHT
+        offx = hdc.GetDeviceCaps(112)       # PHYSICALOFFSETX
+        offy = hdc.GetDeviceCaps(113)       # PHYSICALOFFSETY
         for _ in range(copies):
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
@@ -462,15 +473,17 @@ def _win_draw(printer, title, make_sheets, copies, opts, cancel=None, spool=None
                         img = img.rotate(90, expand=True)
                         rotated = True
                     if fit == "actual" and inches:
+                        # Asli size: bilkul naap ke hisaab se, poore kaagaz ke beech mein (ID card 85.6 mm hi chhape)
                         iw, ih = (inches[1], inches[0]) if rotated else inches
                         w, h = int(iw * dpx), int(ih * dpy)
-                        if w > pw or h > ph:  # kaagaz se bada ho to fit kar do
-                            s = min(pw / w, ph / h)
+                        if w > fw * 1.02 or h > fh * 1.02:  # kaagaz se kaafi bada ho tabhi chhota karo
+                            s = min(fw / w, fh / h)
                             w, h = int(w * s), int(h * s)
+                        x, y = (fw - w) // 2 - offx, (fh - h) // 2 - offy
                     else:
                         s = min(pw / img.width, ph / img.height)
                         w, h = int(img.width * s), int(img.height * s)
-                    x, y = (pw - w) // 2, (ph - h) // 2
+                        x, y = (pw - w) // 2, (ph - h) // 2
                     hdc.StartPage()
                     ImageWin.Dib(img).draw(hdc.GetHandleOutput(), (x, y, x + w, y + h))
                     hdc.EndPage()
