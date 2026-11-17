@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "0.5"
+VERSION = "0.6"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -224,9 +224,15 @@ async def create_job(
     copies: int = Form(1),
     printer: str = Form(""),
     phone: str = Form("Phone"),
+    options: str = Form("{}"),
     x_pb_token: str = Header(""),
 ):
     agent = get_agent(device_id)
+    try:
+        opts = json.loads(options[:2000]) if options else {}
+        opts = opts if isinstance(opts, dict) else {}
+    except json.JSONDecodeError:
+        opts = {}
     name = os.path.basename(file.filename or "file")
     ext = os.path.splitext(name)[1].lower()
     if ext not in ALLOWED_EXT:
@@ -252,7 +258,7 @@ async def create_job(
         res = await agent.rpc("job", {
             "job_id": job_id, "filename": name, "size": size,
             "copies": max(1, min(int(copies), 50)), "printer": printer[:200], "phone": phone[:40],
-            "token": x_pb_token, "dl_key": job["dl_key"],
+            "token": x_pb_token, "dl_key": job["dl_key"], "opts": opts,
         })
     except HTTPException:
         _drop_job(job_id)

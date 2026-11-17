@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v0.5)
+PrintBridge - laptop wala program (v0.6)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -27,7 +27,7 @@ from datetime import datetime
 
 import printer_backend as pb
 
-VERSION = "0.5"
+VERSION = "0.6"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -177,9 +177,9 @@ def change_pin():
 def rpc_printers(p):
     if not check_token(p.get("token")):
         return {"ok": False, "auth": False, "error": "Ye phone laptop se juda nahi hai"}
-    names, default = pb.list_printers()
+    names, default, status = pb.list_printers()
     chosen = CFG.get("printer") if CFG.get("printer") in names else default
-    return {"ok": True, "printers": names, "default": chosen}
+    return {"ok": True, "printers": names, "default": chosen, "status": status}
 
 
 def rpc_job(p):
@@ -189,11 +189,12 @@ def rpc_job(p):
     ext = os.path.splitext(name)[1].lower()
     if ext not in pb.ALLOWED_EXT:
         return {"ok": False, "error": f"'{ext}' file print nahi ho sakti"}
-    names, default = pb.list_printers()
+    names, default, _ = pb.list_printers()
     printer = p.get("printer") or CFG.get("printer") or default
     if printer not in names:
         return {"ok": False, "error": "Ye printer laptop par nahi mila"}
     p["printer"] = printer
+    p["opts"] = pb.clean_opts(p.get("opts"))
     threading.Thread(target=job_worker, args=(p,), daemon=True).start()
     return {"ok": True}
 
@@ -216,7 +217,7 @@ def job_worker(p):
             shutil.copyfileobj(r, f)
         CLOUD.send({"type": "job_status", "job_id": jid, "status": "printing", "message": "Print ho raha hai"})
         with PRINT_LOCK:
-            msg = pb.print_file(path, p["printer"], copies, title=f"PrintBridge - {name}")
+            msg = pb.print_file(path, p["printer"], copies, title=f"PrintBridge - {name}", opts=p.get("opts"))
         CLOUD.send({"type": "job_status", "job_id": jid, "status": "done", "message": msg})
         emit(f"Print hua: '{name}' -> {p['printer']}")
     except Exception as e:
@@ -558,7 +559,7 @@ def run_gui():
 
     def load_printers():
         try:
-            names, default = pb.list_printers()
+            names, default, _ = pb.list_printers()
         except Exception as e:
             names, default = [], None
             emit(f"ERROR printer list: {e}")

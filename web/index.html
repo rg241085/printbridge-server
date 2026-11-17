@@ -64,6 +64,21 @@
   .center { text-align:center; }
   input.pin { font-size:28px; letter-spacing:8px; }
   input.txt::placeholder { letter-spacing:2px; font-size:20px; color:#c0c4cc; }
+  details.opts { margin-top:16px; border:1px solid #e5e7eb; border-radius:12px; padding:0 14px; }
+  details.opts[open] { padding-bottom:14px; }
+  details.opts summary { list-style:none; cursor:pointer; padding:14px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:600; }
+  details.opts summary::-webkit-details-marker { display:none; }
+  details.opts summary small { font-weight:400; color:var(--muted); font-size:12.5px; text-align:right; }
+  details.opts summary::after { content:"▾"; color:var(--muted); margin-left:4px; }
+  details.opts[open] summary::after { content:"▴"; }
+  .seg { display:flex; border:1px solid #d1d5db; border-radius:10px; overflow:hidden; }
+  .seg button { flex:1; border:0; background:#fff; padding:11px 4px; font-size:14px; color:var(--text); border-right:1px solid #e5e7eb; }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:var(--blue); color:#fff; font-weight:600; }
+  input.txt.small { font-size:17px; letter-spacing:1px; padding:11px; margin-top:8px; text-transform:none; }
+  .hint { font-size:12.5px; color:var(--muted); margin:6px 0 0; }
+  label.check { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:15px; }
+  label.check input { width:20px; height:20px; }
   .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin:22px 0 4px; }
   .or::before, .or::after { content:""; flex:1; height:1px; background:#e5e7eb; }
   /* QR scanner */
@@ -140,6 +155,35 @@
         <span id="copies">1</span>
         <button type="button" id="plus">+</button>
       </div>
+
+      <details class="opts" id="optsBox">
+        <summary><span>⚙️ Print settings</span><small id="optsSummary"></small></summary>
+
+        <label class="row">Kaun se page</label>
+        <div class="seg" data-opt="pages">
+          <button data-v="all">Saare</button><button data-v="custom">Chuniye</button><button data-v="odd">Odd</button><button data-v="even">Even</button>
+        </div>
+        <input class="txt small hidden" id="pageRange" placeholder="jaise 1-3, 5, 8" inputmode="text" autocomplete="off">
+        <p class="hint" id="pagesHint"></p>
+
+        <label class="row">Rang</label>
+        <div class="seg" data-opt="color">
+          <button data-v="color">🎨 Color</button><button data-v="bw">⚫ Black & White</button>
+        </div>
+
+        <label class="row">Ek kaagaz par</label>
+        <div class="seg" data-opt="nup">
+          <button data-v="1">1 page</button><button data-v="2">2 page</button><button data-v="4">4 page</button>
+        </div>
+
+        <label class="row">Size</label>
+        <div class="seg" data-opt="fit">
+          <button data-v="fit">Kaagaz par fit</button><button data-v="actual">Asli size</button>
+        </div>
+
+        <label class="check"><input type="checkbox" id="reverse"> Ulta kram (aakhri page pehle)</label>
+        <p class="hint">Ye settings PDF, photo, aur (laptop par MS Office ho to) Word/Excel/PowerPoint par chalti hain.</p>
+      </details>
 
       <button class="btn" id="go" disabled>Print karein</button>
       <div class="bar" id="bar"><div></div></div>
@@ -367,6 +411,7 @@
     if (online && (loadPrinters || !was)) fetchPrinters();
     if (!online) $("printer").innerHTML = "<option value=''>Laptop offline hai</option>";
   }
+  let printerStatus = {};
   async function fetchPrinters() {
     const l = cur();
     const r = await api(`/api/devices/${encodeURIComponent(l.id)}/printers`, { headers: { "X-PB-Token": l.token } });
@@ -374,7 +419,8 @@
     if (r.status === 401) return unpaired();
     if (!r.ok) { sel.innerHTML = "<option value=''>—</option>"; return msg($("msg"), "err", r.error || "Printer list nahi mili"); }
     if (!r.printers.length) { sel.innerHTML = "<option value=''>Laptop par koi printer nahi</option>"; return; }
-    sel.innerHTML = r.printers.map(n => `<option value="${esc(n)}" ${n === r.default ? "selected" : ""}>${esc(n)}${n === r.default ? "  (default)" : ""}</option>`).join("");
+    printerStatus = r.status || {};
+    sel.innerHTML = r.printers.map(n => `<option value="${esc(n)}" ${n === r.default ? "selected" : ""}>${printerStatus[n] === "offline" ? "🔴 " : ""}${esc(n)}${n === r.default ? "  (default)" : ""}${printerStatus[n] === "offline" ? "  – offline" : ""}</option>`).join("");
   }
   function unpaired() {
     const l = cur();
@@ -426,6 +472,42 @@
     } catch (e) { msg($("msg"), "err", "Share ki gayi file padh nahi paaye"); }
   }
 
+  // ---------- print settings ----------
+  const K_OPTS = "pb.opts";
+  const opts = Object.assign({ pages: "all", color: "color", nup: "1", fit: "fit", reverse: false }, load(K_OPTS, {}));
+  opts.pages = "all";  // page chunna har baar nayi file ke liye hota hai
+  const LABEL = { all: "Saare page", odd: "Odd page", even: "Even page", color: "Color", bw: "B&W", fit: "", actual: "Asli size" };
+  function renderOpts() {
+    document.querySelectorAll(".seg").forEach(seg => {
+      const k = seg.dataset.opt;
+      seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", String(opts[k]) === b.dataset.v));
+    });
+    $("pageRange").classList.toggle("hidden", opts.pages !== "custom");
+    $("reverse").checked = !!opts.reverse;
+    $("pagesHint").textContent = opts.pages === "odd" ? "Dono taraf chhaapne ke liye: pehle Odd chhaapiye, kaagaz palat kar printer mein daaliye, phir Even."
+      : opts.pages === "custom" ? "Page number ya range, comma se alag (jaise 1-3, 5, 8-10)" : "";
+    const pg = opts.pages === "custom" ? ("Page " + ($("pageRange").value.trim() || "?")) : LABEL[opts.pages];
+    $("optsSummary").textContent = [pg, LABEL[opts.color], opts.nup !== "1" ? `${opts.nup}/kaagaz` : "", LABEL[opts.fit],
+      opts.reverse ? "ulta" : ""].filter(Boolean).join(" • ");
+    const { pages, ...keep } = opts; save(K_OPTS, keep);
+  }
+  document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    opts[seg.dataset.opt] = b.dataset.v; renderOpts();
+    if (seg.dataset.opt === "pages" && b.dataset.v === "custom") $("pageRange").focus();
+  }));
+  $("pageRange").addEventListener("input", renderOpts);
+  $("reverse").addEventListener("change", e => { opts.reverse = e.target.checked; renderOpts(); });
+  function optionsForSend() {
+    let pages = opts.pages;
+    if (pages === "custom") {
+      pages = $("pageRange").value.trim();
+      if (!/^\s*\d+\s*(-\s*\d*\s*)?(,\s*\d+\s*(-\s*\d*\s*)?)*,?\s*$/.test(pages)) return null;
+    }
+    return { pages, color: opts.color, nup: Number(opts.nup), fit: opts.fit, reverse: !!opts.reverse };
+  }
+  renderOpts();
+
   // ---------- copies ----------
   let copies = 1;
   const setCopies = n => { copies = Math.min(50, Math.max(1, n)); $("copies").textContent = copies; };
@@ -435,11 +517,13 @@
   // ---------- print ----------
   const STATUS = { waiting: "⏳ laptop ko bheja", accepted: "⏳ laptop le raha hai", downloading: "⬇️ laptop le raha hai",
                    printing: "🖨 print ho raha hai", done: "✅ ho gaya", error: "❌" };
+  let sendOpts = {};
   function upload(file, l) {
     return new Promise(resolve => {
       const fd = new FormData();
       fd.append("file", file); fd.append("device_id", l.id); fd.append("copies", copies);
       fd.append("printer", $("printer").value); fd.append("phone", phoneName);
+      fd.append("options", JSON.stringify(sendOpts));
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/jobs");
       xhr.setRequestHeader("X-PB-Token", l.token);
@@ -467,6 +551,10 @@
     if (!files.length) return;
     if (!online) return msg($("msg"), "err", "Laptop offline hai. Laptop par PrintBridge chalu kijiye.");
     if (!$("printer").value) return msg($("msg"), "err", "Pehle printer chuniye");
+    sendOpts = optionsForSend();
+    if (!sendOpts) { $("optsBox").open = true; $("pageRange").focus(); return msg($("msg"), "err", "Page number sahi likhiye, jaise 1-3, 5"); }
+    if (printerStatus[$("printer").value] === "offline" &&
+        !confirm("Ye printer abhi OFFLINE dikh raha hai (band hai ya cable nahi lagi). Phir bhi bhejein?")) return;
     $("go").disabled = true; $("bar").style.display = "block";
     let okCount = 0; const errors = [];
     for (let i = 0; i < files.length; i++) {
