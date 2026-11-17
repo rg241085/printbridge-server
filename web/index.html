@@ -79,6 +79,18 @@
   .hint { font-size:12.5px; color:var(--muted); margin:6px 0 0; }
   label.check { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:15px; }
   label.check input { width:20px; height:20px; }
+  .tools { display:flex; gap:8px; margin-top:10px; }
+  .tools .btn { margin:0; font-size:14px; padding:11px 6px; }
+  .toolBox { margin-top:10px; border:1px solid #e5e7eb; border-radius:12px; padding:12px; font-size:14px; }
+  .toolBox.ok { background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
+  .toolBox p { margin:0 0 4px; }
+  .toolBox .seg { margin-top:8px; }
+  .files li .up { flex-shrink:0; border:0; background:none; color:var(--blue); font-size:16px; padding:0 4px; }
+  .ppStage { position:relative; width:100%; max-width:320px; margin:14px auto 0; touch-action:none; border-radius:10px; overflow:hidden; background:#222; }
+  .ppStage canvas { display:block; width:100%; height:auto; cursor:grab; }
+  .ppGuide { position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 0 3px #fff; }
+  .ppFace { position:absolute; left:22%; right:22%; top:12%; bottom:22%; border:2px dashed rgba(255,255,255,.85); border-radius:50% 50% 45% 45%; }
+  #openPP { margin-top:10px; }
   .idSlot { margin-top:14px; }
   .idPrev { aspect-ratio:85.6/54; border:2px dashed #c7d2fe; border-radius:12px; background:#f8faff; display:flex; align-items:center;
             justify-content:center; overflow:hidden; color:var(--muted); font-size:15px; cursor:pointer; }
@@ -158,6 +170,8 @@
     <input class="txt" id="pairId" placeholder="PB-XXXX-XXXX" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
     <label class="row" for="pairPin">PIN</label>
     <input class="txt pin" id="pairPin" placeholder="6 ank" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+    <label class="row" for="pairName">Is phone ka naam <small>(laptop par dikhega)</small></label>
+    <input class="txt small" id="pairName" placeholder="jaise Ravi ka phone" maxlength="30" autocomplete="off">
     <button class="btn light" id="pairBtn">Jodiye</button>
     <button class="link hidden" id="pairCancel" style="width:100%;margin-top:8px">← Wapas</button>
     <div class="msg" id="pairMsg"></div>
@@ -179,6 +193,7 @@
       <select id="lapSelect" class="hidden" style="margin-top:10px"></select>
       <div class="lapActions">
         <button class="link" id="addLaptop">＋ Doosra laptop jodiye</button>
+        <button class="link" id="nameBtn">✏️ <span id="nameLbl"></span></button>
         <button class="link red" id="removeLaptop">Hataiye</button>
       </div>
     </section>
@@ -202,6 +217,20 @@
         </div>
         <div class="pvGrid" id="pvGrid"></div>
         <p class="hint">Page par tap karke chuniye ya hataiye. Sirf ✔ wale page print honge.</p>
+      </div>
+      <div class="tools hidden" id="pdfTools">
+        <button class="btn light" id="mergeBtn">🔗 Sab ko ek PDF mein jodiye</button>
+        <button class="btn light" id="compressBtn">🗜 PDF chhoti karein</button>
+      </div>
+      <div class="toolBox hidden" id="compressBox">
+        <b>PDF kitni chhoti karein?</b>
+        <div class="seg" id="cLevel"><button data-v="low" class="on">Thodi (achhi quality)</button><button data-v="high">Zyada (sabse chhoti)</button></div>
+        <p class="hint">Har page tasveer ban jaayega (text select nahi hoga). Scan ki hui PDF ke liye sabse achha hai.</p>
+        <div class="two"><button class="btn light" id="cCancel">Rehne dijiye</button><button class="btn" id="cGo">Chhoti karein</button></div>
+      </div>
+      <div class="toolBox ok hidden" id="toolResult">
+        <p id="toolInfo"></p>
+        <button class="btn light" id="toolShare">📤 Is PDF ko save / share karein</button>
       </div>
 
       <label class="row" for="printer">Printer</label>
@@ -268,6 +297,8 @@
         <button class="btn light hidden" id="openLaptopScan">🖨 Laptop scanner se</button>
       </div>
       <button class="btn light" id="openId">🪪 ID card print (Aadhaar / PAN / License)</button>
+      <button class="btn light" id="openPP">🧑 Passport size photo</button>
+      <p class="hint" style="margin-top:12px">📶 Internet band hai? Laptop window mein <b>"Bina internet"</b> wala QR scan kijiye (phone aur laptop ek WiFi par hon).</p>
     </section>
 
     <section class="card hidden" id="installCard">
@@ -288,6 +319,34 @@
       Iske liye app install honi chahiye (Chrome menu ⋮ → <b>"Install app"</b> / "Add to Home screen").
     </section>
   </div>
+  <!-- ===== Passport photo screen ===== -->
+  <div id="ppScreen" class="hidden">
+    <section class="card">
+      <div class="pvHead"><h2 style="margin:0">🧑 Passport size photo</h2><button class="link" id="ppBack">← Wapas</button></div>
+      <p class="tip">Saamne se li gayi photo chuniye (halki deewar ke aage). Photo ko khiskakar aur bada-chhota karke chehra dabbe ke beech mein laaiye.</p>
+      <div class="two">
+        <label class="btn light filebtn">📷 Camera<input type="file" id="ppCam" accept="image/*" capture="user"></label>
+        <label class="btn light filebtn">🖼 Gallery<input type="file" id="ppGal" accept="image/*"></label>
+      </div>
+      <div class="ppStage hidden" id="ppStage">
+        <canvas id="ppCanvas"></canvas>
+        <div class="ppGuide"><div class="ppFace"></div></div>
+      </div>
+      <div id="ppControls" class="hidden">
+        <label class="row">Bada / chhota</label>
+        <input type="range" id="ppZoom" min="100" max="400" value="100" style="width:100%">
+        <label class="row">Size</label>
+        <div class="seg" id="ppSize"><button data-v="35x45" class="on">35×45 mm (India)</button><button data-v="51x51">2×2 inch (US visa)</button></div>
+        <label class="row">Kitni photo</label>
+        <div class="seg" id="ppCount"><button data-v="6">6</button><button data-v="8" class="on">8</button><button data-v="12">12</button><button data-v="0">Poora page</button></div>
+        <label class="check"><input type="checkbox" id="ppBright"> Photo thodi saaf / ujli karein</label>
+        <button class="btn" id="ppPrint">🖨 Passport photo print karein</button>
+        <button class="btn light" id="ppShare">📤 PDF save / share karein</button>
+      </div>
+      <div class="msg" id="ppMsg"></div>
+    </section>
+  </div>
+
   <!-- ===== ID card screen ===== -->
   <div id="idScreen" class="hidden">
     <section class="card">
@@ -360,6 +419,7 @@
 <canvas id="scanCanvas" class="hidden"></canvas>
 <script src="/jsQR.min.js" defer></script>
 <script src="/scan.js" defer></script>
+<script src="/tools.js" defer></script>
 
 <script>
 (() => {
@@ -390,12 +450,20 @@
   let current = load(K_CUR, null);
   const cur = () => laptops.find(l => l.id === current) || laptops[0];
 
-  const phoneName = (() => {
+  const K_NAME = "pb.phoneName";
+  const autoName = (() => {
     const m = navigator.userAgent.match(/Android [\d.]+; ([^;)]+)/);
     if (m && m[1] && m[1].trim() !== "K") return m[1].trim();
     if (/iPhone/.test(navigator.userAgent)) return "iPhone";
     return /Android/.test(navigator.userAgent) ? "Android phone" : "Phone";
   })();
+  let phoneName = load(K_NAME, "") || autoName;
+  function setPhoneName(n) {
+    n = String(n || "").trim().slice(0, 30);
+    if (!n) return;
+    phoneName = n; save(K_NAME, n);
+    if ($("nameLbl")) $("nameLbl").textContent = n;
+  }
 
   function msg(el, type, text) { el.className = "msg " + type; el.textContent = text; }
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -411,6 +479,7 @@
     $("mainScreen").classList.toggle("hidden", screen !== "main");
     $("scanScreen").classList.toggle("hidden", screen !== "scan");
     $("idScreen").classList.toggle("hidden", screen !== "id");
+    $("ppScreen").classList.toggle("hidden", screen !== "pp");
     window.scrollTo(0, 0);
     if (screen === "pair") $("pairCancel").classList.toggle("hidden", !laptops.length);
     if (screen === "main") renderLaptop();
@@ -433,6 +502,7 @@
   async function doPair(id, pin) {
     if (pairing) return;
     pairing = true;
+    if ($("pairName").value.trim()) setPhoneName($("pairName").value);
     msg($("pairMsg"), "info", "Laptop se jod rahe hain…");
     $("pairBtn").disabled = $("scanBtn").disabled = true;
     // Laptop par "Allow" poochha ja sakta hai, isliye thodi der baad message badlo
@@ -533,7 +603,13 @@
   };
 
   // ---------- laptop card ----------
+  $("pairName").value = load(K_NAME, "");
+  $("nameBtn").onclick = () => {
+    const n = prompt("Is phone ka naam (laptop par dikhega):", phoneName);
+    if (n && n.trim()) { setPhoneName(n); msg($("msg"), "ok", `✅ Phone ka naam: "${phoneName}". Agle print se laptop par yahi dikhega.`); }
+  };
   function renderLaptop() {
+    $("nameLbl").textContent = phoneName;
     const l = cur(); if (!l) return show("pair");
     $("lapName").textContent = l.name; $("lapId").textContent = l.id;
     const sel = $("lapSelect");
@@ -590,11 +666,12 @@
   }
   function renderFiles() {
     $("fileList").innerHTML = files.map((f, i) =>
-      `<li><span class="n">${esc(f.name)}</span><span class="st" id="st${i}">${fmt(f.size)}</span><button class="x" data-i="${i}" aria-label="hatao">×</button></li>`).join("");
+      `<li>${i > 0 ? `<button class="up" data-up="${i}" aria-label="upar">↑</button>` : ""}<span class="n">${esc(f.name)}</span><span class="st" id="st${i}">${fmt(f.size)}</span><button class="x" data-i="${i}" aria-label="hatao">×</button></li>`).join("");
     $("go").disabled = !files.length;
     $("go").textContent = files.length > 1 ? `${files.length} files print karein` : "Print karein";
     if (!files.length) $("sharedNote").classList.add("hidden");
     renderPreview();
+    if (window.PBTools) window.PBTools.update();
   }
 
   // ---------- preview (PDF ke pages ki chhoti tasveerein) ----------
@@ -692,7 +769,11 @@
   $("pwIn").addEventListener("keydown", e => { if (e.key === "Enter") $("pwOk").click(); });
   $("pvAll").onclick = () => { opts.pages = "all"; renderOpts(); };
   $("pvNone").onclick = () => { opts.pages = "custom"; $("pageRange").value = ""; renderOpts(); };
-  $("fileList").onclick = e => { const i = e.target.dataset?.i; if (i !== undefined) { files.splice(+i, 1); renderFiles(); } };
+  $("fileList").onclick = e => {
+    const i = e.target.dataset?.i, up = e.target.dataset?.up;
+    if (i !== undefined) { files.splice(+i, 1); renderFiles(); }
+    if (up !== undefined) { const k = +up; [files[k - 1], files[k]] = [files[k], files[k - 1]]; renderFiles(); }
+  };
   $("file").addEventListener("change", e => { $("msg").className = "msg"; addFiles([...e.target.files]); e.target.value = ""; });
 
   // WhatsApp/Gallery se Share ki gayi files (service worker ne cache me rakhi hain)
@@ -898,7 +979,11 @@
 
   // ---------- scan.js ke liye ----------
   window.PB = {
-    $, api, msg, esc, cur, show, phoneName,
+    $, api, msg, esc, cur, show, fmt, loadPdfJs,
+    get phoneName() { return phoneName; },
+    getFiles: () => files,
+    getPassword: f => pwMap.get(f) || "",
+    setFiles(list, note) { files = list; $("sharedNote").classList.add("hidden"); renderFiles(); if (note) msg($("msg"), "ok", note); },
     isOnline: () => online, scanners: () => scannersList,
     printFile(file, over, note) {  // scan / ID card ki PDF ko print list mein daalo
       files = [file]; $("sharedNote").classList.add("hidden"); renderFiles(); show("main");

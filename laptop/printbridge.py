@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v0.9)
+PrintBridge - laptop wala program (v1.0)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -27,8 +27,9 @@ from datetime import datetime
 
 import printer_backend as pb
 import scanner as sc
+import local_server as ls
 
-VERSION = "0.9"
+VERSION = "1.0"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -96,7 +97,8 @@ def load_config():
     cfg.setdefault("printer", None)
     cfg.setdefault("pin", new_pin())
     cfg.setdefault("phones", {})
-    cfg.setdefault("ask_approval", True)  # naya phone judne se pehle laptop par "Allow?" poochho
+    cfg.setdefault("ask_approval", True)
+    cfg.setdefault("local_key", secrets.token_urlsafe(12))  # bina internet print ki chaabi (QR mein)  # naya phone judne se pehle laptop par "Allow?" poochho
     if not cfg.get("server_url"):
         txt = os.path.join(APP_DIR, "server.txt")
         cfg["server_url"] = (open(txt, encoding="utf-8").read().strip() if os.path.exists(txt) else "") or DEFAULT_SERVER
@@ -198,6 +200,13 @@ def rpc_job(p):
         return {"ok": False, "error": "Ye printer laptop par nahi mila"}
     p["printer"] = printer
     p["opts"] = pb.clean_opts(p.get("opts"))
+    # Phone ne apna naam badla ho to laptop par bhi naya naam
+    h = hash_token(p.get("token", ""))
+    phone = str(p.get("phone", ""))[:40]
+    if phone and h in CFG["phones"] and CFG["phones"][h].get("name") != phone:
+        with CFG_LOCK:
+            CFG["phones"][h]["name"] = phone
+            save_config()
     threading.Thread(target=job_worker, args=(p,), daemon=True).start()
     return {"ok": True}
 
@@ -306,6 +315,32 @@ def scan_worker(p):
 
 
 RPC = {"pair": rpc_pair, "printers": rpc_printers, "job": rpc_job, "cancel": rpc_cancel, "scan": rpc_scan}
+
+
+def local_print(path, printer, copies, opts, phone, filename):
+    """Bina internet (same WiFi) se aaya print."""
+    names, default, _, _ = pb.list_printers()
+    if printer not in names:
+        printer = CFG.get("printer") if CFG.get("printer") in names else default
+    copies = max(1, min(int(copies), 50))
+    emit(f"Aaya (bina internet): {phone} se '{filename}' ({copies} copy)")
+    try:
+        with PRINT_LOCK:
+            msg = pb.print_file(path, printer, copies, title=f"PrintBridge - {filename}", opts=pb.clean_opts(opts))
+        emit(f"Print hua: '{filename}' -> {printer}")
+        return msg
+    except Exception as e:
+        emit(f"ERROR: '{filename}' print nahi hui: {e}")
+        raise
+
+
+LOCAL = ls.LocalServer({
+    "key": lambda: CFG["local_key"],
+    "name": lambda: CFG["name"],
+    "printers": pb.list_printers,
+    "print_file": local_print,
+    "jobs_dir": JOBS_DIR,
+})
 
 
 def cleanup_loop():
@@ -589,7 +624,7 @@ def run_gui():
 
     root = tk.Tk()
     root.title("PrintBridge")
-    root.geometry("440x820")
+    root.geometry("440x850")
     root.minsize(400, 700)
     root.configure(bg="white")
     icon_path = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "icon.png")
@@ -695,6 +730,7 @@ def run_gui():
                                                 "PIN bhi badal jaayega. Aage badhein?"):
             with CFG_LOCK:
                 CFG["phones"] = {}
+                CFG["local_key"] = secrets.token_urlsafe(12)
                 save_config()
             change_pin()
             refresh()
@@ -708,6 +744,31 @@ def run_gui():
     ttk.Button(bf, text="Server", command=ask_server).pack(side="left", padx=3)
     ttk.Button(bf, text="Update", command=lambda: threading.Thread(
         target=update_now, args=(True,), daemon=True).start()).pack(side="left", padx=3)
+
+    def offline_qr():
+        win = tk.Toplevel(root)
+        win.title("Bina internet print")
+        win.configure(bg="white")
+        win.resizable(False, False)
+        tk.Label(win, text="Bina internet print", font=(F, 15, "bold"), fg="#0f766e", bg="white").pack(pady=(14, 2))
+        if LOCAL.httpd is None:
+            tk.Label(win, text=f"Ye suvidha abhi chalu nahi ho paayi.\n{LOCAL.error or ''}", fg="#dc2626",
+                     bg="white", font=(F, 10)).pack(padx=20, pady=10)
+            return
+        tk.Label(win, text="Internet band ho tab bhi print ho sakta hai.\n"
+                           "1. Phone aur laptop EK HI WiFi par hon\n"
+                           "2. Phone ke camera se ye QR scan kijiye",
+                 font=(F, 10), bg="white", justify="left").pack(padx=20)
+        img = ImageTk.PhotoImage(make_qr_image(LOCAL.url(), 230))
+        q = tk.Label(win, image=img, bg="white")
+        q.image = img
+        q.pack(pady=8)
+        tk.Label(win, text=LOCAL.url().split("#")[0], font=(F, 9), fg="#666", bg="white").pack()
+        tk.Label(win, text="Phone na khule to: Windows Firewall mein PrintBridge ko\n"
+                           "'Private network' par Allow kijiye.",
+                 font=(F, 8), fg="#888", bg="white").pack(pady=(6, 14))
+
+    ttk.Button(root, text="Bina internet print (same WiFi) ka QR", command=offline_qr).pack(pady=(2, 0))
 
     opts = tk.Frame(root, bg="white")
     opts.pack(pady=(4, 10))
@@ -853,6 +914,8 @@ def run_console():
         qr = qrcode.QRCode(border=1)
         qr.add_data(pairing_url())
         qr.print_ascii(invert=True)
+    if LOCAL.httpd is not None:
+        print(f"Bina internet: {LOCAL.url()}")
     print("\nBand karne ke liye Ctrl+C.\n", flush=True)
     last = None
     try:
@@ -926,6 +989,8 @@ def main():
         return
     log.info("start v%s id=%s", VERSION, CFG["device_id"])
     first_run_setup()
+    if not LOCAL.start():
+        log.info("local server: %s", LOCAL.error)
     CLOUD.start()
     threading.Thread(target=cleanup_loop, daemon=True).start()
     threading.Thread(target=update_loop, daemon=True).start()
