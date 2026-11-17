@@ -23,10 +23,15 @@ import time
 import uuid
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "0.2"
+VERSION = "0.5"
+# Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
+DOWNLOAD_URL = os.environ.get(
+    "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
+PAIR_FAIL_LIMIT = 10        # ek IP se 10 minute me itne galat PIN ke baad roko
+PAIR_FAIL_WINDOW = 10 * 60
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(APP_DIR, "web")
 JOB_DIR = os.path.join(tempfile.gettempdir(), "printbridge_jobs")
@@ -78,6 +83,16 @@ class Agent:
 
 AGENTS: dict[str, Agent] = {}
 JOBS: dict[str, dict] = {}
+PAIR_FAILS: dict[str, list] = {}   # IP -> galat koshishon ka samay
+
+
+def valid_pin(p) -> bool:
+    return isinstance(p, str) and len(p) == 6 and p.isdigit()
+
+
+def client_ip(req: Request) -> str:
+    fwd = req.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() if fwd else (req.client.host if req.client else "?")
 
 app = FastAPI(title="PrintBridge", docs_url=None, redoc_url=None)
 
@@ -157,18 +172,41 @@ async def device_status(device_id: str):
     return {"ok": True, "online": bool(a), "name": a.name if a else None}
 
 
+@app.get("/api/config")
+async def config():
+    return {"ok": True, "download_url": DOWNLOAD_URL, "version": VERSION}
+
+
 @app.post("/api/pair")
 async def pair(request: Request):
+    """Phone Laptop ID + PIN bhejta hai (haath se ya QR scan karke). Laptop PIN check karta hai
+    aur (setting ON ho to) 'Allow?' poochta hai."""
     body = await request.json()
-    device_id = norm_id(body.get("id", ""))
+    pin = "".join(ch for ch in str(body.get("pin", "")) if ch.isdigit())
+    device_id = norm_id(str(body.get("id", "")))
+    ip = client_ip(request)
+    now = time.time()
+    fails = [t for t in PAIR_FAILS.get(ip, []) if now - t < PAIR_FAIL_WINDOW]
+    PAIR_FAILS[ip] = fails
+    if len(fails) >= PAIR_FAIL_LIMIT:
+        raise HTTPException(429, "Bahut baar galat PIN daala gaya. 10 minute baad try kijiye.")
+
     if not device_id:
         raise HTTPException(400, "Laptop ID sahi nahi hai (jaise PB-7K3M-9QX2)")
-    agent = get_agent(device_id)
-    res = await agent.rpc("pair", {"pin": str(body.get("pin", ""))[:12],
-                                   "phone": str(body.get("phone", "Phone"))[:40]})
+    if not valid_pin(pin):
+        raise HTTPException(400, "PIN 6 ank ka hota hai")
+    agent = AGENTS.get(device_id)
+    if not agent:
+        fails.append(now)
+        raise HTTPException(404, "Is ID wala laptop online nahi mila. ID check kijiye aur laptop par PrintBridge chalu rakhiye.")
+
+    res = await agent.rpc("pair", {"pin": pin, "phone": str(body.get("phone", "Phone"))[:40]}, timeout=80)
     if not res.get("ok"):
+        if res.get("denied"):
+            raise HTTPException(403, res.get("error", "Laptop par mana kar diya gaya"))
+        fails.append(now)
         raise HTTPException(403, res.get("error", "PIN galat hai"))
-    return {"ok": True, "id": device_id, "name": agent.name, "token": res["token"]}
+    return {"ok": True, "id": agent.id, "name": agent.name, "token": res["token"]}
 
 
 @app.get("/api/devices/{device_id}/printers")
@@ -272,6 +310,24 @@ async def _startup():
     asyncio.create_task(_cleanup())
 
 
+# ---------------------------------------------------------------- website pages
+@app.get("/download")
+async def download_page():
+    return FileResponse(os.path.join(WEB_DIR, "download.html"))
+
+
+@app.get("/qr.svg")
+async def site_qr(request: Request):
+    """Phone app ke link ka QR (download page par dikhta hai)."""
+    import qrcode
+    import qrcode.image.svg
+    base = str(request.base_url).rstrip("/")
+    if request.headers.get("x-forwarded-proto") == "https":
+        base = base.replace("http://", "https://", 1)
+    img = qrcode.make(base + "/?app=1", image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)
+    return Response(img.to_string(), media_type="image/svg+xml")
+
+
 # ---------------------------------------------------------------- phone app (PWA)
 @app.post("/share")
 async def share_fallback():
@@ -283,7 +339,7 @@ async def share_fallback():
 async def _headers(request: Request, call_next):
     resp = await call_next(request)
     p = request.url.path
-    if p in ("/", "/index.html", "/sw.js", "/manifest.webmanifest") or p.startswith("/api/"):
+    if p in ("/", "/index.html", "/download", "/sw.js", "/manifest.webmanifest") or p.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 
