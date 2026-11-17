@@ -1,5 +1,5 @@
 """
-PrintBridge - printing ka hissa (v0.9)
+PrintBridge - printing ka hissa (v1.1)
 
 Har file ko "pages" (images) mein badal kar chhaapte hain, taaki saari settings har file par chalein:
   - Photo (jpg/png/...)      -> 1 page
@@ -326,13 +326,41 @@ def _win_printer_info(name):
 
 
 # ---------------------------------------------------------------- printing
-def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=None, spool=None):
-    """cancel: threading.Event (set ho to print rok do). spool: list, isme Windows print job IDs aate hain."""
+def count_sheets(path, opts=None, password=None):
+    """Kitne kaagaz lagenge (1 copy ke). Word/Excel jaisi file ka pata na chale to None."""
+    ext = os.path.splitext(path)[1].lower()
+    opts = clean_opts(opts)
+    if password is not None:
+        opts["password"] = password
+    work, tmp = path, None
+    if ext in OFFICE_EXT and IS_WIN and not TEST_MODE:
+        tmp = office_to_pdf(path, ext)
+        if tmp:
+            work, ext = tmp, ".pdf"
+    if ext not in IMAGE_EXT | PDF_EXT:
+        return None
+    try:
+        doc = Doc(work, ext, opts["password"])
+        try:
+            n = len(select_pages(opts["pages"], doc.count))
+        finally:
+            doc.close()
+        return -(-n // opts["nup"])  # upar ki taraf round
+    finally:
+        if tmp:
+            shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+
+
+def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=None, spool=None, stats=None):
+    """cancel: threading.Event (set ho to print rok do). spool: list, isme Windows print job IDs aate hain.
+    stats: dict, isme {"sheets": kaagaz (1 copy), "copies", "color": "color"/"bw"} bhar diya jaata hai."""
     ext = os.path.splitext(path)[1].lower()
     if ext not in ALLOWED_EXT:
         raise PrintError(f"'{ext}' file print nahi ho sakti")
     copies = max(1, min(int(copies), 50))
     opts = clean_opts(opts)
+    if stats is not None:
+        stats.update(sheets=None, copies=copies, color=opts["color"])
     if not TEST_MODE and not printer:
         raise PrintError("Laptop par koi printer nahi mila")
 
@@ -359,6 +387,8 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=N
     doc = Doc(work, ext, opts["password"])
     try:
         select_pages(opts["pages"], doc.count)  # galat range ho to print shuru hone se pehle hi bata do
+        if stats is not None:
+            stats["sheets"] = -(-len(select_pages(opts["pages"], doc.count)) // opts["nup"])
         if TEST_MODE:
             return _test_print(doc, opts, copies, os.path.basename(path), cancel) + \
                 (f" [paper={opts['paper']}, duplex={opts['duplex']}]" if opts["paper"] != "default" or opts["duplex"] != "off" else "")

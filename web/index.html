@@ -890,7 +890,7 @@
       const r = await api(`/api/jobs/${jobId}`).catch(() => null);
       if (!r || !r.ok) continue;
       $("st" + i).textContent = STATUS[r.status] || r.status;
-      if (r.status === "done") return { ok: true };
+      if (r.status === "done") return { ok: true, message: r.message || "" };
       if (r.status === "error") return { ok: false, error: r.message };
       if (r.status === "cancelled") return { ok: false, cancelled: true };
     }
@@ -910,7 +910,7 @@
     $("go").disabled = true; $("bar").style.display = "block";
     cancelReq = false; curJob = null;
     $("cancelBtn").disabled = false; $("cancelBtn").textContent = "⛔ Print cancel karein"; $("cancelBtn").classList.remove("hidden");
-    let okCount = 0, cancelled = 0; const errors = [];
+    let okCount = 0, cancelled = 0; const errors = [], notes = [];
     for (let i = 0; i < files.length; i++) {
       if (cancelReq) { $("st" + i).textContent = STATUS.cancelled; cancelled++; continue; }
       $("bar").firstElementChild.style.width = "0";
@@ -921,7 +921,7 @@
       if (r.status === 401) { unpaired(); break; }
       if (r.ok) { curJob = r.job; if (cancelReq) $("cancelBtn").onclick(); r = await waitJob(r.job, i); curJob = null; }
       $("st" + i).textContent = r.ok ? STATUS.done : r.cancelled ? STATUS.cancelled : "❌";
-      if (r.ok) { okCount++; addHistory(files[i], copies, l.name); }
+      if (r.ok) { okCount++; addHistory(files[i], copies, l.name); if (/color band/i.test(r.message || "")) notes.push(files[i].name); }
       else if (r.cancelled) cancelled++;
       else errors.push(`${files[i].name}: ${r.error}`);
     }
@@ -929,7 +929,8 @@
     if (errors.length) msg($("msg"), "err", errors.join("\n"));
     else if (cancelled && !okCount) msg($("msg"), "info", "⛔ Print cancel kar diya gaya");
     else if (cancelled) msg($("msg"), "info", `✅ ${okCount} print hui, ⛔ ${cancelled} cancel hui`);
-    else if (okCount) msg($("msg"), "ok", okCount > 1 ? `✅ ${okCount} files print ho gayi!` : `✅ Print ho gaya! "${l.name}" ke printer se nikal raha hai.`);
+    else if (okCount) msg($("msg"), "ok", (okCount > 1 ? `✅ ${okCount} files print ho gayi!` : `✅ Print ho gaya! "${l.name}" ke printer se nikal raha hai.`)
+      + (notes.length ? "\n⚫ Is phone ke liye color band hai, isliye Black & White mein chhapa." : ""));
     files = []; setTimeout(renderFiles, 3000);
   };
 

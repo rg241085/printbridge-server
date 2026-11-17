@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "0.7"
+VERSION = "1.1"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -398,6 +398,97 @@ async def _startup():
     shutil.rmtree(JOB_DIR, ignore_errors=True)
     os.makedirs(JOB_DIR, exist_ok=True)
     asyncio.create_task(_cleanup())
+
+
+# ---------------------------------------------------------------- Print shop (customer bina PIN ke)
+SHOP_UPLOADS: dict[str, list] = {}  # IP -> upload ka samay (spam rokne ke liye)
+
+
+def shop_agent(code: str) -> Agent:
+    a = AGENTS.get(norm_id(code))
+    if not a:
+        raise HTTPException(404, "Shop ka computer abhi band hai. Thodi der baad try kijiye ya counter par baat kijiye.")
+    return a
+
+
+@app.get("/s/{code}")
+async def shop_page(code: str):
+    return FileResponse(os.path.join(WEB_DIR, "shop.html"), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/shop/{code}")
+async def shop_info(code: str):
+    res = await shop_agent(code).rpc("shop_info", {})
+    if not res.get("ok"):
+        raise HTTPException(403, res.get("error", "Shop band hai"))
+    return res
+
+
+@app.post("/api/shop/{code}/files")
+async def shop_file(
+    request: Request, code: str,
+    file: UploadFile = File(...), order_id: str = Form(...), customer: str = Form(""),
+    mobile: str = Form(""), copies: int = Form(1), options: str = Form("{}"),
+):
+    ip, now = client_ip(request), time.time()
+    recent = [t for t in SHOP_UPLOADS.get(ip, []) if now - t < 600]
+    if len(recent) >= 40:
+        raise HTTPException(429, "Bahut saari files bheji gayi. Thodi der baad try kijiye.")
+    SHOP_UPLOADS[ip] = recent + [now]
+    if not customer.strip():
+        raise HTTPException(400, "Apna naam likhiye")
+    agent = shop_agent(code)
+    try:
+        opts = json.loads(options[:2000]) if options else {}
+        opts = opts if isinstance(opts, dict) else {}
+    except json.JSONDecodeError:
+        opts = {}
+    name = os.path.basename(file.filename or "file")
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, f"'{ext or name}' type ki file print nahi ho sakti")
+    job_id = uuid.uuid4().hex
+    path = os.path.join(JOB_DIR, job_id + ext)
+    size = 0
+    with open(path, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_MB * 1024 * 1024:
+                out.close()
+                os.remove(path)
+                raise HTTPException(413, f"File bahut badi hai (max {MAX_MB} MB)")
+            out.write(chunk)
+    job = {"id": job_id, "device_id": agent.id, "path": path, "filename": name, "size": size,
+           "status": "waiting", "message": "", "created": time.time(), "dl_key": secrets.token_urlsafe(16)}
+    JOBS[job_id] = job
+    try:
+        res = await agent.rpc("shop_job", {
+            "job_id": job_id, "dl_key": job["dl_key"], "filename": name, "size": size, "order_id": order_id[:40],
+            "customer": customer.strip()[:40], "mobile": mobile.strip()[:15],
+            "copies": max(1, min(int(copies), 50)), "opts": opts})
+    except HTTPException:
+        _drop_job(job_id)
+        raise
+    if not res.get("ok"):
+        _drop_job(job_id)
+        raise HTTPException(400, res.get("error", "Shop ne file nahi li"))
+    return {"ok": True, "token": res.get("token")}
+
+
+@app.get("/api/shop/{code}/orders/{order_id}")
+async def shop_order(code: str, order_id: str):
+    res = await shop_agent(code).rpc("shop_status", {"order_id": order_id[:40]})
+    if not res.get("ok"):
+        raise HTTPException(404, res.get("error", "Order nahi mila"))
+    return res
+
+
+@app.post("/api/shop/{code}/orders/{order_id}/cancel")
+async def shop_order_cancel(code: str, order_id: str):
+    res = await shop_agent(code).rpc("shop_cancel", {"order_id": order_id[:40]})
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "Cancel nahi hua"))
+    return res
 
 
 # ---------------------------------------------------------------- website pages

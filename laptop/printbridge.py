@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v1.0)
+PrintBridge - laptop wala program (v1.1)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -28,8 +28,10 @@ from datetime import datetime
 import printer_backend as pb
 import scanner as sc
 import local_server as ls
+import shop as sh
+import usage as us
 
-VERSION = "1.0"
+VERSION = "1.1"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -98,7 +100,11 @@ def load_config():
     cfg.setdefault("pin", new_pin())
     cfg.setdefault("phones", {})
     cfg.setdefault("ask_approval", True)
-    cfg.setdefault("local_key", secrets.token_urlsafe(12))  # bina internet print ki chaabi (QR mein)  # naya phone judne se pehle laptop par "Allow?" poochho
+    cfg.setdefault("local_key", secrets.token_urlsafe(12))  # bina internet print ki chaabi (QR mein)
+    cfg.setdefault("shop", {})
+    for k, v in {"enabled": False, "name": "", "bw_rate": 2, "color_rate": 10, "auto_print": False}.items():
+        cfg["shop"].setdefault(k, v)
+    cfg.setdefault("rules", {})  # phone (hash) -> {"no_color": True/False, "daily_limit": kaagaz}  # naya phone judne se pehle laptop par "Allow?" poochho
     if not cfg.get("server_url"):
         txt = os.path.join(APP_DIR, "server.txt")
         cfg["server_url"] = (open(txt, encoding="utf-8").read().strip() if os.path.exists(txt) else "") or DEFAULT_SERVER
@@ -109,6 +115,7 @@ def load_config():
 
 
 CFG = load_config()
+us.init(DATA_DIR)
 CFG_LOCK = threading.Lock()
 EVENTS = queue.Queue()
 PRINT_LOCK = threading.Lock()
@@ -203,6 +210,12 @@ def rpc_job(p):
     # Phone ne apna naam badla ho to laptop par bhi naya naam
     h = hash_token(p.get("token", ""))
     phone = str(p.get("phone", ""))[:40]
+    p["uid"] = h[:12]
+    rule = CFG["rules"].get(h, {})
+    if rule.get("no_color") and p["opts"]["color"] == "color":
+        p["opts"]["color"] = "bw"
+        p["note"] = " (is phone ke liye color band hai, isliye Black & White chhapa)"
+    p["daily_limit"] = int(rule.get("daily_limit") or 0)
     if phone and h in CFG["phones"] and CFG["phones"][h].get("name") != phone:
         with CFG_LOCK:
             CFG["phones"][h]["name"] = phone
@@ -236,17 +249,26 @@ def job_worker(p):
             shutil.copyfileobj(r, f)
         if job["cancel"].is_set():
             raise pb.Cancelled()
+        limit = p.get("daily_limit") or 0
+        if limit:  # Office mode: roz ki page limit
+            need = (pb.count_sheets(path, p.get("opts")) or 0) * copies
+            done = us.today_pages(p.get("uid", ""))
+            if done + need > limit:
+                raise pb.PrintError(f"Aaj ki limit {limit} kaagaz hai. Aap {done} chhaap chuke hain, "
+                                    f"is file ke {need} aur nahi chhap sakte.")
         status("queued" if PRINT_LOCK.locked() else "printing",
                "Line mein hai (pehle wala print chal raha hai)" if PRINT_LOCK.locked() else "Print ho raha hai")
         with PRINT_LOCK:
             if job["cancel"].is_set():
                 raise pb.Cancelled()
             status("printing", "Print ho raha hai")
+            stats = {}
             msg = pb.print_file(path, p["printer"], copies, title=f"PrintBridge - {name}", opts=p.get("opts"),
-                                cancel=job["cancel"], spool=job["spool"])
+                                cancel=job["cancel"], spool=job["spool"], stats=stats)
         if job["cancel"].is_set():
             raise pb.Cancelled()
-        status("done", msg)
+        us.log("phone", p.get("uid", ""), phone, name, stats.get("sheets"), copies, stats.get("color", ""), p["printer"])
+        status("done", msg + p.get("note", ""))
         emit(f"Print hua: '{name}' -> {p['printer']}")
     except pb.Cancelled:
         pb.cancel_spool(job["printer"], job["spool"])
@@ -314,8 +336,6 @@ def scan_worker(p):
             pass
 
 
-RPC = {"pair": rpc_pair, "printers": rpc_printers, "job": rpc_job, "cancel": rpc_cancel, "scan": rpc_scan}
-
 
 def local_print(path, printer, copies, opts, phone, filename):
     """Bina internet (same WiFi) se aaya print."""
@@ -325,13 +345,118 @@ def local_print(path, printer, copies, opts, phone, filename):
     copies = max(1, min(int(copies), 50))
     emit(f"Aaya (bina internet): {phone} se '{filename}' ({copies} copy)")
     try:
+        stats = {}
         with PRINT_LOCK:
-            msg = pb.print_file(path, printer, copies, title=f"PrintBridge - {filename}", opts=pb.clean_opts(opts))
+            msg = pb.print_file(path, printer, copies, title=f"PrintBridge - {filename}", opts=pb.clean_opts(opts),
+                                stats=stats)
+        us.log("local", "local:" + phone, phone, filename, stats.get("sheets"), copies, stats.get("color", ""), printer)
         emit(f"Print hua: '{filename}' -> {printer}")
         return msg
     except Exception as e:
         emit(f"ERROR: '{filename}' print nahi hui: {e}")
         raise
+
+
+# ---------------------------------------------------------------- Print shop mode
+SHOP_DIRTY = threading.Event()   # window ko taaza karna hai
+
+
+def shop_changed(kind, order):
+    SHOP_DIRTY.set()
+    if kind == "new":
+        emit(f"SHOP: naya order #{order['token']} - {order['customer']}")
+        UI_EVENTS.put(("shop_new", order["token"], order["customer"]))
+    elif kind == "auto_print":
+        threading.Thread(target=shop_print, args=(order["id"],), daemon=True).start()
+
+
+SHOP = sh.ShopQueue(DATA_DIR, lambda: CFG["shop"], on_change=shop_changed)
+
+
+def shop_name():
+    return CFG["shop"].get("name") or CFG["name"]
+
+
+def shop_link():
+    b = server_base()
+    return f"{b}/s/{CFG['device_id'].replace('PB-', '').replace('-', '')}" if b else ""
+
+
+def shop_print(order_id, printer=None):
+    names, default, _, _ = pb.list_printers()
+    printer = printer if printer in names else (CFG.get("printer") if CFG.get("printer") in names else default)
+    o = SHOP.get(order_id)
+    if not o:
+        return False, "Order nahi mila"
+    emit(f"SHOP: order #{o['token']} ({o['customer']}) print ho raha hai")
+
+    def one(path, prn, copies, opts, stats, f, order):
+        with PRINT_LOCK:
+            msg = pb.print_file(path, prn, copies, title=f"Shop #{order['token']} - {f['name']}", opts=opts, stats=stats)
+        sheets = stats.get("sheets")
+        amount = round(sheets * copies * SHOP.rate(stats.get("color")), 2) if sheets is not None else ""
+        us.log("shop", "shop:" + order["customer"], f"#{order['token']} {order['customer']}", f["name"], sheets,
+               copies, stats.get("color", ""), prn, "done", amount)
+        return msg
+
+    ok, err = SHOP.print_order(order_id, printer, one)
+    emit(f"SHOP: order #{o['token']} " + ("taiyaar" if ok else f"ERROR {err}"))
+    return ok, err
+
+
+def valid_order_id(x):
+    return isinstance(x, str) and 16 <= len(x) <= 40 and x.replace("-", "").replace("_", "").isalnum()
+
+
+def rpc_shop_info(p):
+    s = CFG["shop"]
+    if not s.get("enabled"):
+        return {"ok": False, "error": "Ye shop abhi online order nahi le rahi. Counter par baat kijiye."}
+    return {"ok": True, "name": shop_name(), "bw_rate": s["bw_rate"], "color_rate": s["color_rate"]}
+
+
+def rpc_shop_job(p):
+    if not CFG["shop"].get("enabled"):
+        return {"ok": False, "error": "Ye shop abhi online order nahi le rahi"}
+    if not valid_order_id(p.get("order_id")):
+        return {"ok": False, "error": "Galat order"}
+    name = str(p.get("filename", "file"))
+    if os.path.splitext(name)[1].lower() not in pb.ALLOWED_EXT:
+        return {"ok": False, "error": f"'{name}' print nahi ho sakti"}
+    try:
+        o, f = SHOP.start_file(p["order_id"], str(p.get("customer", "")).strip(), str(p.get("mobile", "")).strip(),
+                               name, p.get("copies", 1), p.get("opts"))
+    except pb.PrintError as e:
+        return {"ok": False, "error": str(e)}
+
+    def fetch():
+        try:
+            req = urllib.request.Request(f"{server_base()}/api/agent/jobs/{p['job_id']}/file",
+                                         headers={"X-DL-Key": p["dl_key"], "User-Agent": f"PrintBridge/{VERSION}"})
+            with urllib.request.urlopen(req, timeout=180) as r, open(f["path"], "wb") as out:
+                shutil.copyfileobj(r, out)
+            CLOUD.send({"type": "job_status", "job_id": p["job_id"], "status": "done", "message": "Shop ko mil gaya"})
+            SHOP.file_ready(o["id"], f["fid"], True)
+        except Exception as e:
+            CLOUD.send({"type": "job_status", "job_id": p["job_id"], "status": "error", "message": str(e)[:200]})
+            SHOP.file_ready(o["id"], f["fid"], False, str(e))
+    threading.Thread(target=fetch, daemon=True).start()
+    return {"ok": True, "token": o["token"]}
+
+
+def rpc_shop_status(p):
+    st = SHOP.status(p.get("order_id")) if valid_order_id(p.get("order_id")) else None
+    if not st:
+        return {"ok": False, "error": "Order nahi mila (shayad purana ho gaya)"}
+    st.update(ok=True, shop=shop_name())
+    return st
+
+
+def rpc_shop_cancel(p):
+    if not valid_order_id(p.get("order_id")):
+        return {"ok": False, "error": "Galat order"}
+    ok, err = SHOP.cancel(p["order_id"])
+    return {"ok": ok, "error": err}
 
 
 LOCAL = ls.LocalServer({
@@ -343,9 +468,19 @@ LOCAL = ls.LocalServer({
 })
 
 
+RPC = {"pair": rpc_pair, "printers": rpc_printers, "job": rpc_job, "cancel": rpc_cancel, "scan": rpc_scan,
+       "shop_info": rpc_shop_info, "shop_job": rpc_shop_job, "shop_status": rpc_shop_status,
+       "shop_cancel": rpc_shop_cancel}
+
+
+
 def cleanup_loop():
     """Print ho chuki files 10 minute baad delete (privacy ke liye)."""
     while True:
+        try:
+            SHOP.cleanup()
+        except Exception:
+            log.exception("shop cleanup")
         cutoff = time.time() - 600
         for n in os.listdir(JOBS_DIR):
             fp = os.path.join(JOBS_DIR, n)
@@ -618,14 +753,19 @@ def make_qr_image(data, size=200):
 
 
 def run_gui():
+    import gui_extra as gx
     import tkinter as tk
+    M = sys.modules[__name__]
     from tkinter import messagebox, simpledialog, ttk
     from PIL import Image, ImageTk
 
     root = tk.Tk()
     root.title("PrintBridge")
-    root.geometry("440x850")
-    root.minsize(400, 700)
+    sh = root.winfo_screenheight()
+    compact = sh < 940            # chhoti screen (jaise 1366x768): QR aur history chhote
+    QR = 140 if compact else 200
+    root.geometry(f"460x{min(880, sh - 70)}+20+10")
+    root.minsize(400, 600)
     root.configure(bg="white")
     icon_path = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "icon.png")
     try:
@@ -671,7 +811,7 @@ def run_gui():
     phones_lbl.pack(fill="x", padx=18, pady=(6, 0))
 
     tk.Label(root, text="Print history", font=(F, 10, "bold"), bg="white").pack(anchor="w", padx=18, pady=(6, 0))
-    log_box = tk.Listbox(root, height=6, font=(F, 9), bd=1, relief="solid")
+    log_box = tk.Listbox(root, height=3 if compact else 6, font=(F, 9), bd=1, relief="solid")
     log_box.pack(fill="both", expand=True, padx=18)
 
     def load_printers():
@@ -698,7 +838,7 @@ def run_gui():
         host = server_base().split("://", 1)[-1]
         site_lbl.configure(text=f"Phone app: {host}")
         url = pairing_url()
-        img = ImageTk.PhotoImage(make_qr_image(url) if url else Image.new("RGB", (200, 200), "#eeeeee"))
+        img = ImageTk.PhotoImage(make_qr_image(url, QR) if url else Image.new("RGB", (QR, QR), "#eeeeee"))
         qr_lbl.configure(image=img)
         qr_lbl.image = img
         n = len(CFG["phones"])
@@ -739,7 +879,7 @@ def run_gui():
     bf = tk.Frame(root, bg="white")
     bf.pack(pady=(8, 2))
     ttk.Button(bf, text="Naya PIN", command=new_pin_click).pack(side="left", padx=3)
-    ttk.Button(bf, text="Phones hatao", command=remove_phones).pack(side="left", padx=3)
+    ttk.Button(bf, text="Phones", command=lambda: gx.open_phones(root, M, refresh)).pack(side="left", padx=3)
     ttk.Button(bf, text="Refresh", command=lambda: (refresh(), load_printers())).pack(side="left", padx=3)
     ttk.Button(bf, text="Server", command=ask_server).pack(side="left", padx=3)
     ttk.Button(bf, text="Update", command=lambda: threading.Thread(
@@ -768,7 +908,12 @@ def run_gui():
                            "'Private network' par Allow kijiye.",
                  font=(F, 8), fg="#888", bg="white").pack(pady=(6, 14))
 
-    ttk.Button(root, text="Bina internet print (same WiFi) ka QR", command=offline_qr).pack(pady=(2, 0))
+    bf2 = tk.Frame(root, bg="white")
+    bf2.pack(pady=(2, 0))
+    ttk.Button(bf2, text="Print shop", command=lambda: gx.open_shop(root, M)).pack(side="left", padx=3)
+    ttk.Button(bf2, text="Report", command=lambda: gx.open_report(root, M)).pack(side="left", padx=3)
+    ttk.Button(bf2, text="Bina internet QR", command=offline_qr).pack(side="left", padx=3)
+    ttk.Button(bf2, text="Sab phones hatao", command=remove_phones).pack(side="left", padx=3)
 
     opts = tk.Frame(root, bg="white")
     opts.pack(pady=(4, 10))
@@ -831,6 +976,17 @@ def run_gui():
             root.after(10, handle_approval)
         while not UI_EVENTS.empty():
             ev = UI_EVENTS.get()
+            if isinstance(ev, tuple) and ev[0] == "shop_new":
+                root.bell()
+                try:
+                    if tray["icon"] is not None:
+                        tray["icon"].notify(f"Naya order #{ev[1]}: {ev[2]}", "PrintBridge - Print shop")
+                except Exception:
+                    pass
+                continue
+            if isinstance(ev, tuple) and ev[0] == "error":
+                messagebox.showerror("PrintBridge", ev[1], parent=root)
+                continue
             if ev == "show":
                 show_window()
             elif ev == "quit":
@@ -839,7 +995,7 @@ def run_gui():
         root.after(400, poll)
 
     # ---- system tray (ghadi ke paas wala icon): window band karne par bhi program chalta rahe
-    tray = {"icon": None}
+    tray = {"icon": None, "ready": False}
 
     def start_tray():
         try:
@@ -851,7 +1007,18 @@ def run_gui():
                 pystray.MenuItem("PrintBridge kholiye", lambda: UI_EVENTS.put("show"), default=True),
                 pystray.MenuItem("PrintBridge band karein", lambda: UI_EVENTS.put("quit")))
             icon = pystray.Icon("PrintBridge", img, "PrintBridge: mobile se print (chal raha hai)", menu)
-            threading.Thread(target=icon.run, daemon=True).start()
+
+            def setup(ic):
+                ic.visible = True
+                tray["ready"] = True  # icon sach mein ban gaya, ab window chhupana surakshit hai
+
+            def run():
+                try:
+                    icon.run(setup=setup)
+                except Exception:
+                    log.exception("tray icon")
+                tray["ready"] = False
+            threading.Thread(target=run, daemon=True).start()
             tray["icon"] = icon
         except Exception:
             log.exception("tray icon")
@@ -864,7 +1031,7 @@ def run_gui():
         root.focus_force()
 
     def hide_window(notify=True):
-        if tray["icon"] is None:
+        if tray["icon"] is None or not tray["ready"]:
             root.iconify()  # tray nahi bana to bas chhota kar do
             return
         root.withdraw()
@@ -899,7 +1066,7 @@ def run_gui():
     load_printers()
     poll()
     if "--minimized" in sys.argv:
-        root.after(50, lambda: hide_window(notify=False))
+        root.after(1500, lambda: hide_window(notify=False))  # tray icon banne ka thoda samay
     root.mainloop()
 
 
