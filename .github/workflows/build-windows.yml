@@ -1,0 +1,59 @@
+# PrintBridge.exe apne aap banana
+# Jab bhi "laptop" folder me kuch badlega, GitHub ek Windows computer par exe banayega
+# aur use "Releases" me daal dega. Download page usi exe ka link deta hai.
+name: Build PrintBridge.exe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "laptop/**"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r laptop/requirements.txt pyinstaller
+
+      - name: Build exe
+        working-directory: laptop
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name PrintBridge
+          --icon icon.ico
+          --add-data "icon.png;."
+          --collect-all pypdfium2
+          --collect-all pypdfium2_raw
+          --hidden-import win32timezone
+          printbridge.py
+
+      - name: Check exe
+        working-directory: laptop
+        shell: bash
+        run: ls -la dist/ && test -f dist/PrintBridge.exe
+
+      - name: Publish to Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -m1 '^VERSION' laptop/printbridge.py | cut -d'"' -f2)
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest laptop/dist/PrintBridge.exe \
+            --title "PrintBridge v$VERSION" \
+            --notes "Windows ke liye PrintBridge v$VERSION. PrintBridge.exe download karke chalaiye." \
+            --latest
