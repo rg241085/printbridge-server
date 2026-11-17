@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a56db">
+<title>PrintBridge: Mobile se seedha print</title>
+<meta name="description" content="Phone se seedha laptop ke printer par print. WhatsApp se Share karke print. Free.">
+<link rel="icon" href="/icons/icon-192.png">
+<style>
+  :root { --blue:#1a56db; --deep:#0f3aa8; --bg:#f3f5f9; --text:#1f2937; --muted:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--text); background:var(--bg); line-height:1.55; }
+  a { color:var(--blue); }
+  .wrap { max-width:1040px; margin:0 auto; padding:0 20px; }
+  nav { display:flex; align-items:center; gap:10px; padding:18px 0; color:#fff; font-weight:700; font-size:20px; }
+  nav img { width:34px; height:34px; border-radius:9px; border:2px solid rgba(255,255,255,.4); }
+  nav a.app { margin-left:auto; color:#fff; font-size:15px; font-weight:500; opacity:.9; }
+  .hero { background:linear-gradient(160deg,var(--blue),var(--deep)); color:#fff; padding-bottom:70px; }
+  .hero h1 { font-size:clamp(30px,5vw,48px); line-height:1.15; margin:34px 0 12px; max-width:720px; }
+  .hero p.lead { font-size:clamp(17px,2.2vw,20px); opacity:.92; max-width:640px; margin:0 0 28px; }
+  .dl { display:inline-flex; align-items:center; gap:12px; background:#fff; color:var(--blue); text-decoration:none;
+        font-size:19px; font-weight:700; padding:16px 26px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.18); }
+  .dl:hover { transform:translateY(-1px); }
+  .dl svg { width:24px; height:24px; }
+  .sub { font-size:14px; opacity:.85; margin-top:12px; }
+  .steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:18px; margin-top:-44px; }
+  .card { background:#fff; border-radius:18px; padding:22px; box-shadow:0 2px 10px rgba(0,0,0,.07); }
+  .num { width:34px; height:34px; border-radius:50%; background:#eef2ff; color:var(--blue); font-weight:800;
+         display:flex; align-items:center; justify-content:center; margin-bottom:10px; }
+  .card h3 { margin:0 0 8px; font-size:18px; }
+  .card p, .card li { color:#374151; font-size:15px; margin:0 0 6px; }
+  .card ul { padding-left:18px; margin:6px 0 0; }
+  .note { background:#fffbeb; border-radius:10px; padding:10px 12px; font-size:13.5px; color:#92400e; margin-top:10px; }
+  .qr { display:flex; gap:14px; align-items:center; margin-top:10px; }
+  .qr img { width:110px; height:110px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:4px; }
+  h2 { font-size:26px; margin:56px 0 18px; }
+  .feat { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+  .feat .card { padding:18px; }
+  .feat .ic { font-size:28px; }
+  .feat h4 { margin:6px 0 4px; font-size:16px; }
+  .feat p { margin:0; font-size:14.5px; color:var(--muted); }
+  footer { text-align:center; color:var(--muted); font-size:13px; padding:50px 0 30px; }
+</style>
+</head>
+<body>
+<section class="hero">
+  <div class="wrap">
+    <nav><img src="/icons/icon-192.png" alt="">PrintBridge <a class="app" href="/?app=1">Phone app kholiye →</a></nav>
+    <h1>Mobile ke document seedha printer se nikaaliye</h1>
+    <p class="lead">Ab file pehle laptop par bhejne ki zaroorat nahi. WhatsApp ya Gallery mein <b>Share → PrintBridge</b> dabaiye, aur print laptop ke printer se nikal aayega. Phone ghar par ho ya kahin aur, print chala jaayega.</p>
+    <a class="dl" id="dlBtn" href="https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+      Windows ke liye download (Free)
+    </a>
+    <div class="sub">Windows 10 / 11 &nbsp;•&nbsp; Kuch aur install karne ki zaroorat nahi</div>
+  </div>
+</section>
+
+<main class="wrap">
+  <div class="steps">
+    <div class="card">
+      <div class="num">1</div>
+      <h3>Laptop par program chalaiye</h3>
+      <p>Jis laptop/computer se printer juda hai, us par <b>PrintBridge.exe</b> download karke double-click kijiye. Window mein <b>QR code</b>, <b>Laptop ID</b> aur <b>PIN</b> dikhenge.</p>
+      <div class="note">⚠️ Windows "Windows protected your PC" dikhaye to <b>More info</b> → <b>Run anyway</b> dabaiye. Ye naye programs ke liye aam baat hai.</div>
+    </div>
+    <div class="card">
+      <div class="num">2</div>
+      <h3>Phone ko laptop se jodiye</h3>
+      <p>Phone par app kholiye aur <b>📷 QR scan</b> dabakar laptop ka QR scan kijiye, ya <b>Laptop ID + PIN</b> daaliye. Laptop par <b>Allow</b> dabaiye. Bas, jud gaya!</p>
+      <div class="qr">
+        <img src="/qr.svg" alt="Phone app ka QR code">
+        <p style="font-size:14px">Phone ke camera se scan kijiye<br>ya phone mein kholiye:<br><b id="siteUrl">printbridge.onrender.com</b></p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="num">3</div>
+      <h3>Share karke print kijiye</h3>
+      <p>Phone app ko install kijiye (app mein "Install karein" button). Phir:</p>
+      <ul>
+        <li>WhatsApp/Gallery mein file par <b>Share → PrintBridge</b></li>
+        <li><b>Print karein</b> dabaiye, ho gaya ✅</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Kya-kya milta hai</h2>
+  <div class="feat">
+    <div class="card"><div class="ic">📲</div><h4>WhatsApp se seedha</h4><p>Share menu se ek tap mein print. Laptop par file bhejne ka jhanjhat khatam.</p></div>
+    <div class="card"><div class="ic">🌍</div><h4>Kahin se bhi</h4><p>Phone WiFi par ho ya mobile data par, print laptop ke printer par hi aayega.</p></div>
+    <div class="card"><div class="ic">📄</div><h4>Har file</h4><p>PDF, photo, Word, Excel, PowerPoint. Ek saath kai files aur kai copies.</p></div>
+    <div class="card"><div class="ic">🔒</div><h4>Surakshit</h4><p>Naya phone laptop ki permission se hi judta hai. Print hote hi file server se delete ho jaati hai.</p></div>
+    <div class="card"><div class="ic">💻</div><h4>Kai laptop</h4><p>Ghar, office, shop: ek phone se kai laptops ke printers par print.</p></div>
+    <div class="card"><div class="ic">🆓</div><h4>Free</h4><p>Koi account nahi, koi sign-up nahi. Download kijiye aur shuru ho jaaiye.</p></div>
+  </div>
+
+  <h2>Zaroori baatein</h2>
+  <div class="card">
+    <ul>
+      <li>Printer us laptop se juda (aur Windows mein install) hona chahiye.</li>
+      <li>Word / Excel / PowerPoint files ke liye laptop par MS Office ya LibreOffice hona chahiye. PDF aur photo bina kisi extra software ke print hote hain.</li>
+      <li>Laptop on ho aur PrintBridge chal raha ho (ye Windows ke saath apne aap start hota hai).</li>
+      <li>iPhone par Share menu wala tareeka nahi chalta. Wahan app kholkar "File chuniye" se print kijiye.</li>
+    </ul>
+  </div>
+</main>
+
+<footer>PrintBridge • Mobile se seedha print</footer>
+
+<script>
+  document.getElementById("siteUrl").textContent = location.host;
+  fetch("/api/config").then(r => r.json()).then(c => { if (c.download_url) document.getElementById("dlBtn").href = c.download_url; }).catch(() => {});
+</script>
+</body>
+</html>

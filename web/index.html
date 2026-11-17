@@ -62,6 +62,19 @@
   .hist li span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hist .t { color:var(--muted); flex-shrink:0; }
   .center { text-align:center; }
+  input.pin { font-size:28px; letter-spacing:8px; }
+  input.txt::placeholder { letter-spacing:2px; font-size:20px; color:#c0c4cc; }
+  .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin:22px 0 4px; }
+  .or::before, .or::after { content:""; flex:1; height:1px; background:#e5e7eb; }
+  /* QR scanner */
+  #scanner { position:fixed; inset:0; background:#000; z-index:50; display:flex; flex-direction:column; }
+  #scanner video { flex:1; width:100%; object-fit:cover; }
+  #scanner .frame { position:absolute; left:50%; top:45%; width:68vw; max-width:300px; aspect-ratio:1; transform:translate(-50%,-50%);
+                    border:3px solid #fff; border-radius:22px; box-shadow:0 0 0 100vmax rgba(0,0,0,.45); }
+  #scanner .top { position:absolute; top:0; left:0; right:0; padding:22px 18px; color:#fff; text-align:center; font-size:16px; }
+  #scanner .bottom { position:absolute; bottom:0; left:0; right:0; padding:24px 18px 34px; text-align:center; }
+  #scanner .bottom button { background:#fff; color:#111; border:0; border-radius:12px; padding:14px 32px; font-size:17px; font-weight:600; }
+  #scanErr { color:#fecaca; font-size:14px; margin-top:8px; }
   .big { font-size:48px; }
 </style>
 </head>
@@ -76,15 +89,18 @@
   <section id="pairScreen" class="card hidden">
     <div class="center big">💻</div>
     <h2 class="center">Laptop jodiye</h2>
-    <p class="tip center">Laptop par PrintBridge program kholiye. Usme dikh rahi <b>Laptop ID</b> aur <b>PIN</b> yahan daaliye.<br>
-      (Ya laptop ka QR code phone ke camera se scan kijiye, apne aap jud jaayega.)</p>
+    <p class="tip center">Laptop par PrintBridge program kholiye. Usme QR code, Laptop ID aur PIN dikhenge.</p>
+    <button class="btn" id="scanBtn">📷 QR scan karke jodiye</button>
+    <div class="or"><span>ya haath se daaliye</span></div>
     <label class="row" for="pairId">Laptop ID</label>
-    <input class="txt" id="pairId" placeholder="PB-XXXX-XXXX" maxlength="12" autocomplete="off" autocapitalize="characters">
+    <input class="txt" id="pairId" placeholder="PB-XXXX-XXXX" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
     <label class="row" for="pairPin">PIN</label>
-    <input class="txt" id="pairPin" placeholder="6 ank" maxlength="6" inputmode="numeric" autocomplete="off">
-    <button class="btn" id="pairBtn">Jodiye</button>
+    <input class="txt pin" id="pairPin" placeholder="6 ank" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+    <button class="btn light" id="pairBtn">Jodiye</button>
     <button class="link hidden" id="pairCancel" style="width:100%;margin-top:8px">← Wapas</button>
     <div class="msg" id="pairMsg"></div>
+    <p class="tip center" style="margin-top:18px">Laptop par PrintBridge nahi hai?<br>
+      Laptop mein <b id="dlHost">printbridge.onrender.com/download</b> kholkar download kijiye.</p>
   </section>
 
   <!-- ===== Print screen ===== -->
@@ -150,13 +166,36 @@
   </div>
 </main>
 
+<div id="scanner" class="hidden">
+  <video id="scanVideo" playsinline muted></video>
+  <div class="frame"></div>
+  <div class="top">Laptop ki screen par dikh rahe <b>QR code</b> ko is dabbe mein laaiye</div>
+  <div class="bottom"><button id="scanClose">✕ Band karein</button><div id="scanErr"></div></div>
+</div>
+<canvas id="scanCanvas" class="hidden"></canvas>
+<script src="/jsQR.min.js" defer></script>
+
 <script>
 (() => {
   const $ = id => document.getElementById(id);
   const K_LAPTOPS = "pb.laptops", K_CUR = "pb.current", K_HIST = "pb.history";
   const ALLOWED = ["pdf","jpg","jpeg","png","bmp","gif","webp","txt","doc","docx","xls","xlsx","ppt","pptx","rtf","odt"];
 
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  if ("serviceWorker" in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("/sw.js").then(reg => {
+      // App khulne par aur har 30 minute me naya version check karo
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+    }).catch(() => {});
+    // Naya version aa gaya -> page apne aap taaza karo (agar user kuch kar nahi raha)
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloaded) return;
+      const idle = () => !files.length && !pairing && !scanStream;
+      const tryReload = () => { if (idle()) { reloaded = true; location.reload(); } else setTimeout(tryReload, 5000); };
+      tryReload();
+    });
+  }
 
   // ---------- storage ----------
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
@@ -189,16 +228,26 @@
   }
 
   // ---------- pairing ----------
-  $("pairId").addEventListener("input", e => {
-    let v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  function fmtId(raw) {
+    let v = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (v.startsWith("PB")) v = v.slice(2);
     v = v.slice(0, 8);
-    e.target.value = "PB-" + v.slice(0, 4) + (v.length > 4 ? "-" + v.slice(4) : "");
-    if (!v) e.target.value = "";
+    return v ? "PB-" + v.slice(0, 4) + (v.length > 4 ? "-" + v.slice(4) : "") : "";
+  }
+  $("pairId").addEventListener("input", e => {
+    e.target.value = fmtId(e.target.value);
+    if (e.target.value.length === 12) $("pairPin").focus();
   });
+  $("pairPin").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6); });
+  $("pairPin").addEventListener("keydown", e => { if (e.key === "Enter") $("pairBtn").click(); });
+  let pairing = false;
   async function doPair(id, pin) {
+    if (pairing) return;
+    pairing = true;
     msg($("pairMsg"), "info", "Laptop se jod rahe hain…");
-    $("pairBtn").disabled = true;
+    $("pairBtn").disabled = $("scanBtn").disabled = true;
+    // Laptop par "Allow" poochha ja sakta hai, isliye thodi der baad message badlo
+    const hint = setTimeout(() => msg($("pairMsg"), "info", "💻 Laptop ki screen par \"Yes / Allow\" dabaiye…"), 1500);
     try {
       const r = await api("/api/pair", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, pin, phone: phoneName }) });
@@ -206,11 +255,11 @@
       laptops = laptops.filter(l => l.id !== r.id);
       laptops.push({ id: r.id, name: r.name, token: r.token });
       current = r.id; save(K_LAPTOPS, laptops); save(K_CUR, current);
-      $("pairPin").value = ""; $("pairMsg").className = "msg";
+      $("pairId").value = ""; $("pairPin").value = ""; $("pairMsg").className = "msg";
       show("main");
     } catch (e) {
       msg($("pairMsg"), "err", e.message);
-    } finally { $("pairBtn").disabled = false; }
+    } finally { clearTimeout(hint); $("pairBtn").disabled = $("scanBtn").disabled = false; pairing = false; }
   }
   $("pairBtn").onclick = () => {
     const id = $("pairId").value.trim(), pin = $("pairPin").value.trim();
@@ -219,7 +268,74 @@
     doPair(id, pin);
   };
   $("pairCancel").onclick = () => show("main");
-  $("addLaptop").onclick = () => { $("pairId").value = ""; show("pair"); };
+  $("addLaptop").onclick = () => { $("pairId").value = ""; $("pairPin").value = ""; $("pairMsg").className = "msg"; show("pair"); };
+
+  // QR text (link) se ID aur PIN nikaalo: ...#id=PB-XXXX-XXXX&pin=123456
+  function parsePairText(text) {
+    try {
+      const h = String(text).includes("#") ? String(text).split("#")[1] : String(text).split("?")[1] || "";
+      const p = new URLSearchParams(h);
+      const id = fmtId(p.get("id") || p.get("pair")), pin = (p.get("pin") || "").replace(/\D/g, "");
+      if (id.length === 12 && pin.length === 6) return { id, pin };
+    } catch (e) {}
+    return null;
+  }
+
+  // ---------- QR scanner (phone app ke andar camera) ----------
+  let scanStream = null, scanTimer = null, detector = null;
+  async function startScan() {
+    $("scanErr").textContent = "";
+    $("pairMsg").className = "msg";
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return msg($("pairMsg"), "err", "Is browser mein camera nahi khul sakta. Phone ke camera app se QR scan kijiye, ya ID + PIN daaliye.");
+    }
+    try {
+      scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    } catch (e) {
+      return msg($("pairMsg"), "err", "Camera ki permission nahi mili. Chrome mein camera allow kijiye, ya ID + PIN daaliye.");
+    }
+    $("scanner").classList.remove("hidden");
+    const v = $("scanVideo");
+    v.srcObject = scanStream;
+    await v.play().catch(() => {});
+    if ("BarcodeDetector" in window) {
+      try { detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch (e) { detector = null; }
+    }
+    const cv = $("scanCanvas"), ctx = cv.getContext("2d", { willReadFrequently: true });
+    const tick = async () => {
+      if (!scanStream) return;
+      let text = null;
+      try {
+        if (v.readyState >= 2 && v.videoWidth) {
+          if (detector) {
+            const codes = await detector.detect(v);
+            if (codes.length) text = codes[0].rawValue;
+          } else if (window.jsQR) {
+            const w = Math.min(640, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+            cv.width = w; cv.height = h; ctx.drawImage(v, 0, 0, w, h);
+            const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
+            if (code) text = code.data;
+          }
+        }
+      } catch (e) { detector = null; }  // BarcodeDetector fail ho to jsQR use karo
+      if (text) {
+        const pr = parsePairText(text);
+        if (pr) { stopScan(); if (navigator.vibrate) navigator.vibrate(80); $("pairId").value = pr.id; $("pairPin").value = pr.pin; return doPair(pr.id, pr.pin); }
+        $("scanErr").textContent = "Ye PrintBridge ka QR nahi hai";
+      }
+      scanTimer = setTimeout(tick, 200);
+    };
+    tick();
+  }
+  function stopScan() {
+    clearTimeout(scanTimer);
+    if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+    scanStream = null;
+    $("scanVideo").srcObject = null;
+    $("scanner").classList.add("hidden");
+  }
+  $("scanBtn").onclick = startScan;
+  $("scanClose").onclick = stopScan;
   $("removeLaptop").onclick = () => {
     const l = cur(); if (!l || !confirm(`"${l.name}" ko is phone se hata dein?`)) return;
     laptops = laptops.filter(x => x.id !== l.id); save(K_LAPTOPS, laptops);
@@ -264,7 +380,7 @@
     const l = cur();
     msg($("msg"), "err", `"${l.name}" ne is phone ko hata diya hai. Dobara jodiye.`);
     laptops = laptops.filter(x => x.id !== l.id); save(K_LAPTOPS, laptops);
-    $("pairId").value = l.id; setTimeout(() => show("pair"), 1500);
+    setTimeout(() => show("pair"), 1500);
   }
 
   // ---------- files ----------
@@ -387,16 +503,23 @@
   if (matchMedia("(display-mode: standalone)").matches) $("shareHelp").classList.add("hidden");
 
   // ---------- start ----------
-  window.addEventListener("hashchange", () => { if (location.hash.includes("pair=")) location.reload(); });
+  window.addEventListener("hashchange", () => { if (location.hash.includes("pin=")) location.reload(); });
   (async () => {
     renderHist();
-    // QR se aaye: #pair=PB-XXXX-XXXX&pin=123456
-    if (location.hash.includes("pair=")) {
-      const p = new URLSearchParams(location.hash.slice(1));
+    $("dlHost").textContent = location.host + "/download";
+    const params = new URLSearchParams(location.search);
+    const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+    // Laptop/computer se khola aur koi laptop juda nahi -> download page dikhao
+    if (!isMobile && !laptops.length && !location.hash && !params.has("app") && !params.has("shared")) {
+      location.replace("/download"); return;
+    }
+    // Phone ke camera app se QR scan karke aaye: #id=PB-XXXX-XXXX&pin=123456
+    const fromQr = location.hash ? parsePairText(location.href) : null;
+    if (fromQr) {
       history.replaceState(null, "", location.pathname + location.search);
-      $("pairId").value = p.get("pair") || ""; $("pairPin").value = p.get("pin") || "";
+      $("pairId").value = fromQr.id; $("pairPin").value = fromQr.pin;
       show("pair");
-      await doPair($("pairId").value, $("pairPin").value);
+      await doPair(fromQr.id, fromQr.pin);
     } else {
       laptops.length ? show("main") : show("pair");
     }
