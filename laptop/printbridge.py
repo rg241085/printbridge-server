@@ -1,5 +1,5 @@
 """
-PrintBridge - laptop wala program (v0.6)
+PrintBridge - laptop wala program (v0.7)
 
 Naya kya hai:
   - Laptop internet par PrintBridge server se juda rehta hai, isliye phone kahin se bhi print bhej sakta hai.
@@ -26,8 +26,9 @@ import urllib.request
 from datetime import datetime
 
 import printer_backend as pb
+import scanner as sc
 
-VERSION = "0.6"
+VERSION = "0.7"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -177,9 +178,10 @@ def change_pin():
 def rpc_printers(p):
     if not check_token(p.get("token")):
         return {"ok": False, "auth": False, "error": "Ye phone laptop se juda nahi hai"}
-    names, default, status = pb.list_printers()
+    names, default, status, caps = pb.list_printers()
     chosen = CFG.get("printer") if CFG.get("printer") in names else default
-    return {"ok": True, "printers": names, "default": chosen, "status": status}
+    return {"ok": True, "printers": names, "default": chosen, "status": status, "caps": caps,
+            "scanners": sc.list_scanners()}
 
 
 def rpc_job(p):
@@ -189,7 +191,7 @@ def rpc_job(p):
     ext = os.path.splitext(name)[1].lower()
     if ext not in pb.ALLOWED_EXT:
         return {"ok": False, "error": f"'{ext}' file print nahi ho sakti"}
-    names, default, _ = pb.list_printers()
+    names, default, _, _ = pb.list_printers()
     printer = p.get("printer") or CFG.get("printer") or default
     if printer not in names:
         return {"ok": False, "error": "Ye printer laptop par nahi mila"}
@@ -199,7 +201,9 @@ def rpc_job(p):
     return {"ok": True}
 
 
-RPC = {"pair": rpc_pair, "printers": rpc_printers, "job": rpc_job}
+
+
+ACTIVE = {}  # job_id -> {"cancel": Event, "spool": [Windows job ids], "printer": naam}
 
 
 def job_worker(p):
@@ -209,21 +213,98 @@ def job_worker(p):
     emit(f"Aaya: {phone} se '{name}' ({copies} copy)")
     ext = os.path.splitext(name)[1].lower()
     path = os.path.join(JOBS_DIR, f"{jid[:8]}{ext}")
+    job = ACTIVE[jid] = {"cancel": threading.Event(), "spool": [], "printer": p["printer"]}
+
+    def status(st, msg):
+        CLOUD.send({"type": "job_status", "job_id": jid, "status": st, "message": msg})
+
     try:
-        CLOUD.send({"type": "job_status", "job_id": jid, "status": "downloading", "message": "Laptop file le raha hai"})
+        status("downloading", "Laptop file le raha hai")
         req = urllib.request.Request(f"{server_base()}/api/agent/jobs/{jid}/file",
                                      headers={"X-DL-Key": p["dl_key"], "User-Agent": f"PrintBridge/{VERSION}"})
         with urllib.request.urlopen(req, timeout=180) as r, open(path, "wb") as f:
             shutil.copyfileobj(r, f)
-        CLOUD.send({"type": "job_status", "job_id": jid, "status": "printing", "message": "Print ho raha hai"})
+        if job["cancel"].is_set():
+            raise pb.Cancelled()
+        status("queued" if PRINT_LOCK.locked() else "printing",
+               "Line mein hai (pehle wala print chal raha hai)" if PRINT_LOCK.locked() else "Print ho raha hai")
         with PRINT_LOCK:
-            msg = pb.print_file(path, p["printer"], copies, title=f"PrintBridge - {name}", opts=p.get("opts"))
-        CLOUD.send({"type": "job_status", "job_id": jid, "status": "done", "message": msg})
+            if job["cancel"].is_set():
+                raise pb.Cancelled()
+            status("printing", "Print ho raha hai")
+            msg = pb.print_file(path, p["printer"], copies, title=f"PrintBridge - {name}", opts=p.get("opts"),
+                                cancel=job["cancel"], spool=job["spool"])
+        if job["cancel"].is_set():
+            raise pb.Cancelled()
+        status("done", msg)
         emit(f"Print hua: '{name}' -> {p['printer']}")
+    except pb.Cancelled:
+        pb.cancel_spool(job["printer"], job["spool"])
+        status("cancelled", "Print cancel ho gaya")
+        emit(f"Cancel hua: '{name}'")
     except Exception as e:
         log.exception("job fail")
-        CLOUD.send({"type": "job_status", "job_id": jid, "status": "error", "message": str(e)[:250]})
+        status("error", str(e)[:250])
         emit(f"ERROR: '{name}' print nahi hui: {e}")
+    finally:
+        ACTIVE.pop(jid, None)
+
+
+def rpc_cancel(p):
+    if not check_token(p.get("token")):
+        return {"ok": False, "auth": False, "error": "Ye phone laptop se juda nahi hai"}
+    job = ACTIVE.get(p.get("job_id"))
+    if not job:
+        return {"ok": True, "message": "Print pehle hi khatam ho chuka tha"}
+    job["cancel"].set()
+    pb.cancel_spool(job["printer"], job["spool"])  # jo Windows queue mein pahunch chuka, use bhi hatao
+    return {"ok": True}
+
+
+def rpc_scan(p):
+    if not check_token(p.get("token")):
+        return {"ok": False, "auth": False, "error": "Ye phone laptop se juda nahi hai"}
+    if not sc.list_scanners():
+        return {"ok": False, "error": "Laptop se koi scanner juda nahi mila"}
+    threading.Thread(target=scan_worker, args=(p,), daemon=True).start()
+    return {"ok": True}
+
+
+SCAN_LOCK = threading.Lock()
+
+
+def scan_worker(p):
+    sid = p["scan_id"]
+    path = os.path.join(JOBS_DIR, f"scan_{sid[:8]}.jpg")
+
+    def status(st, msg):
+        CLOUD.send({"type": "scan_status", "scan_id": sid, "status": st, "message": msg})
+
+    try:
+        emit(f"Scan: {p.get('phone', 'Phone')} ne scan maanga")
+        with SCAN_LOCK:
+            status("scanning", "Scan ho raha hai...")
+            sc.scan(path, color=p.get("color", "color"), dpi=int(p.get("dpi", 200)))
+        with open(path, "rb") as f:
+            data = f.read()
+        req = urllib.request.Request(f"{server_base()}/api/agent/scans/{sid}", data=data, method="POST",
+                                     headers={"X-Up-Key": p["up_key"], "Content-Type": "image/jpeg",
+                                              "User-Agent": f"PrintBridge/{VERSION}"})
+        with urllib.request.urlopen(req, timeout=180) as r:
+            r.read()
+        emit("Scan phone ko bhej diya")
+    except Exception as e:
+        log.exception("scan fail")
+        status("error", str(e)[:250])
+        emit(f"ERROR scan: {e}")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+RPC = {"pair": rpc_pair, "printers": rpc_printers, "job": rpc_job, "cancel": rpc_cancel, "scan": rpc_scan}
 
 
 def cleanup_loop():
@@ -559,7 +640,7 @@ def run_gui():
 
     def load_printers():
         try:
-            names, default, _ = pb.list_printers()
+            names, default, _, _ = pb.list_printers()
         except Exception as e:
             names, default = [], None
             emit(f"ERROR printer list: {e}")

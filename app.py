@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "0.6"
+VERSION = "0.7"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -83,6 +83,7 @@ class Agent:
 
 AGENTS: dict[str, Agent] = {}
 JOBS: dict[str, dict] = {}
+SCANS: dict[str, dict] = {}        # laptop ke scanner se phone tak scan
 PAIR_FAILS: dict[str, list] = {}   # IP -> galat koshishon ka samay
 
 
@@ -146,8 +147,13 @@ async def agent_ws(ws: WebSocket):
                 if job and job["device_id"] == device_id:
                     job["status"] = msg.get("status", job["status"])
                     job["message"] = str(msg.get("message", ""))[:300]
-                    if job["status"] in ("done", "error"):
+                    if job["status"] in ("done", "error", "cancelled"):
                         _drop_file(job)
+            elif t == "scan_status":
+                sc = SCANS.get(msg.get("scan_id"))
+                if sc and sc["device_id"] == device_id and sc["status"] != "done":
+                    sc["status"] = msg.get("status", sc["status"])
+                    sc["message"] = str(msg.get("message", ""))[:300]
             elif t == "hb":
                 await agent.send({"type": "hb_ack"})
     except (WebSocketDisconnect, RuntimeError, json.JSONDecodeError):
@@ -271,6 +277,77 @@ async def create_job(
     return {"ok": True, "job_id": job_id}
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, x_pb_token: str = Header("")):
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job nahi mila")
+    if job["status"] in ("done", "error", "cancelled"):
+        return {"ok": True, "status": job["status"]}
+    agent = get_agent(job["device_id"])
+    res = await agent.rpc("cancel", {"job_id": job_id, "token": x_pb_token})
+    if not res.get("ok"):
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Cancel nahi ho paaya"))
+    job["status"], job["message"] = "cancelled", "Print cancel ho gaya"
+    _drop_file(job)
+    return {"ok": True, "status": "cancelled"}
+
+
+# ---------------------------------------------------------------- scan (laptop ka scanner -> phone)
+@app.post("/api/devices/{device_id}/scan")
+async def start_scan(device_id: str, request: Request, x_pb_token: str = Header("")):
+    agent = get_agent(device_id)
+    body = await request.json()
+    scan_id = uuid.uuid4().hex
+    sc = {"id": scan_id, "device_id": agent.id, "status": "waiting", "message": "Laptop ko bheja",
+          "path": None, "created": time.time(), "up_key": secrets.token_urlsafe(16),
+          "view_key": secrets.token_urlsafe(16)}
+    SCANS[scan_id] = sc
+    res = await agent.rpc("scan", {
+        "scan_id": scan_id, "up_key": sc["up_key"], "token": x_pb_token,
+        "color": body.get("color") if body.get("color") in ("color", "gray", "bw") else "color",
+        "dpi": int(body.get("dpi") or 200), "phone": str(body.get("phone", "Phone"))[:40]})
+    if not res.get("ok"):
+        SCANS.pop(scan_id, None)
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Scan shuru nahi hua"))
+    return {"ok": True, "scan_id": scan_id, "key": sc["view_key"]}
+
+
+@app.get("/api/scans/{scan_id}")
+async def scan_status(scan_id: str):
+    sc = SCANS.get(scan_id)
+    if not sc:
+        raise HTTPException(404, "Scan nahi mila")
+    return {"ok": True, "status": sc["status"], "message": sc["message"]}
+
+
+@app.get("/api/scans/{scan_id}/file")
+async def scan_file(scan_id: str, key: str = ""):
+    sc = SCANS.get(scan_id)
+    if not sc or not secrets.compare_digest(key, sc["view_key"]) or not sc["path"] or not os.path.exists(sc["path"]):
+        raise HTTPException(404, "Scan nahi mila")
+    return FileResponse(sc["path"], media_type="image/jpeg", filename="scan.jpg")
+
+
+@app.post("/api/agent/scans/{scan_id}")
+async def scan_upload(scan_id: str, request: Request, x_up_key: str = Header("")):
+    sc = SCANS.get(scan_id)
+    if not sc or not secrets.compare_digest(x_up_key, sc["up_key"]):
+        raise HTTPException(404, "Scan nahi mila")
+    path = os.path.join(JOB_DIR, f"scan_{scan_id}.jpg")
+    size = 0
+    with open(path, "wb") as out:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > 40 * 1024 * 1024:
+                out.close()
+                os.remove(path)
+                raise HTTPException(413, "Scan bahut bada hai")
+            out.write(chunk)
+    sc.update(path=path, status="done", message="Scan aa gaya")
+    return {"ok": True}
+
+
 @app.get("/api/jobs/{job_id}")
 async def job_status(job_id: str):
     job = JOBS.get(job_id)
@@ -306,6 +383,13 @@ async def _cleanup():
         cutoff = time.time() - JOB_TTL
         for jid in [j for j, v in JOBS.items() if v["created"] < cutoff]:
             _drop_job(jid)
+        for sid in [k for k, v in SCANS.items() if v["created"] < cutoff]:
+            sc = SCANS.pop(sid)
+            if sc.get("path"):
+                try:
+                    os.remove(sc["path"])
+                except OSError:
+                    pass
         await asyncio.sleep(60)
 
 

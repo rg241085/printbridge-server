@@ -79,6 +79,38 @@
   .hint { font-size:12.5px; color:var(--muted); margin:6px 0 0; }
   label.check { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:15px; }
   label.check input { width:20px; height:20px; }
+  .preview { margin-top:10px; border:1px solid #e5e7eb; border-radius:12px; padding:10px; }
+  .pvHead { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:14px; }
+  .pvGrid, .scanGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:10px; margin-top:10px; max-height:420px; overflow:auto; }
+  .pv, .sp { position:relative; border:2px solid #d1d5db; border-radius:8px; background:#f9fafb; aspect-ratio:0.72; display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:pointer; }
+  .pv img, .sp img { max-width:100%; max-height:100%; }
+  .pv.on { border-color:var(--blue); }
+  .pv:not(.on) img { opacity:.35; }
+  .pv .no, .sp .no { position:absolute; bottom:3px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.65); color:#fff; font-size:11px; padding:1px 7px; border-radius:8px; }
+  .pv .tick { position:absolute; top:4px; right:4px; width:20px; height:20px; border-radius:50%; background:#fff; border:2px solid #d1d5db; font-size:12px; display:flex; align-items:center; justify-content:center; }
+  .pv.on .tick { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .seg.wrap { flex-wrap:wrap; }
+  .seg.wrap button { flex:1 0 30%; border-bottom:1px solid #e5e7eb; }
+  .btn.danger { background:#fee2e2; color:var(--err); font-size:16px; padding:12px; margin-top:10px; }
+  .two { display:flex; gap:10px; }
+  .two .btn { margin-top:10px; font-size:15px; padding:13px 6px; }
+  .filebtn { display:block; text-align:center; cursor:pointer; }
+  .filebtn input { display:none; }
+  #scanScreen .btn.light { margin-top:10px; }
+  #editor { position:fixed; inset:0; background:#111; z-index:60; display:flex; flex-direction:column; color:#fff; }
+  .edTop { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; }
+  .edTop button { background:none; border:0; color:#fff; font-size:17px; padding:6px 8px; }
+  .edTop #edDone { background:var(--blue); border-radius:10px; font-weight:600; }
+  .edStage { flex:1; position:relative; touch-action:none; overflow:hidden; }
+  .edStage canvas { position:absolute; }
+  .edStage svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .edStage polygon { fill:rgba(26,86,219,.15); stroke:#4f8cff; stroke-width:2; }
+  .hd { position:absolute; width:34px; height:34px; margin:-17px 0 0 -17px; border-radius:50%; border:3px solid #fff; background:rgba(26,86,219,.7); z-index:2; touch-action:none; }
+  .edBottom { padding:12px 14px 22px; }
+  .seg.dark { border-color:#444; } .seg.dark button { background:#222; color:#ddd; border-color:#444; }
+  .seg.dark button.on { background:var(--blue); color:#fff; }
+  .edBtns { display:flex; gap:8px; margin-top:10px; }
+  .edBtns button { flex:1; background:#2a2a2a; color:#fff; border:0; border-radius:10px; padding:12px 4px; font-size:14px; }
   .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin:22px 0 4px; }
   .or::before, .or::after { content:""; flex:1; height:1px; background:#e5e7eb; }
   /* QR scanner */
@@ -145,6 +177,12 @@
         <input type="file" id="file" multiple accept=".pdf,image/*,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt">
       </label>
       <ul class="files" id="fileList"></ul>
+      <div class="preview hidden" id="preview">
+        <div class="pvHead"><b id="pvTitle">Preview</b>
+          <span><button class="link" id="pvAll">Sab chuniye</button> · <button class="link" id="pvNone">Koi nahi</button></span></div>
+        <div class="pvGrid" id="pvGrid"></div>
+        <p class="hint">Page par tap karke chuniye ya hataiye. Sirf ✔ wale page print honge.</p>
+      </div>
 
       <label class="row" for="printer">Printer</label>
       <select id="printer"><option value="">—</option></select>
@@ -181,13 +219,34 @@
           <button data-v="fit">Kaagaz par fit</button><button data-v="actual">Asli size</button>
         </div>
 
+        <div id="paperRow" class="hidden">
+          <label class="row">Kaagaz ka size</label>
+          <div class="seg wrap" data-opt="paper" id="paperSeg"></div>
+        </div>
+        <div id="duplexRow" class="hidden">
+          <label class="row">Dono taraf print (printer khud palatega)</label>
+          <div class="seg" data-opt="duplex">
+            <button data-v="off">Nahi</button><button data-v="long">Haan (kitaab jaisa)</button><button data-v="short">Haan (upar palte)</button>
+          </div>
+        </div>
+
         <label class="check"><input type="checkbox" id="reverse"> Ulta kram (aakhri page pehle)</label>
         <p class="hint">Ye settings PDF, photo, aur (laptop par MS Office ho to) Word/Excel/PowerPoint par chalti hain.</p>
       </details>
 
       <button class="btn" id="go" disabled>Print karein</button>
       <div class="bar" id="bar"><div></div></div>
+      <button class="btn danger hidden" id="cancelBtn">⛔ Print cancel karein</button>
       <div class="msg" id="msg"></div>
+    </section>
+
+    <section class="card" id="scanCard">
+      <h2>📷 Scan karke PDF banaiye</h2>
+      <p class="tip">Document ki photo lijiye, kone theek kijiye, aur PDF banakar print ya share kijiye.</p>
+      <div class="two">
+        <button class="btn light" id="openScan">📷 Camera se scan</button>
+        <button class="btn light hidden" id="openLaptopScan">🖨 Laptop scanner se</button>
+      </div>
     </section>
 
     <section class="card hidden" id="installCard">
@@ -208,7 +267,40 @@
       Iske liye app install honi chahiye (Chrome menu ⋮ → <b>"Install app"</b> / "Add to Home screen").
     </section>
   </div>
+  <!-- ===== Scan screen ===== -->
+  <div id="scanScreen" class="hidden">
+    <section class="card">
+      <div class="pvHead"><h2 style="margin:0">📷 Scan → PDF</h2><button class="link" id="scanBack">← Wapas</button></div>
+      <p class="tip" id="scanTip">Page jodne ke liye neeche button dabaiye. Page par tap karke kone, rang aur ghumaav theek kijiye.</p>
+      <div class="scanGrid" id="scanGrid"></div>
+      <div class="two" style="margin-top:12px">
+        <label class="btn light filebtn">📷 Camera<input type="file" id="camIn" accept="image/*" capture="environment"></label>
+        <label class="btn light filebtn">🖼 Gallery<input type="file" id="galIn" accept="image/*" multiple></label>
+      </div>
+      <button class="btn light hidden" id="lapScanBtn">🖨 Laptop ke scanner se page jodiye</button>
+      <div class="msg" id="scanMsg"></div>
+    </section>
+    <section class="card" id="scanActions">
+      <label class="row" for="scanName">PDF ka naam</label>
+      <input class="txt small" id="scanName" autocomplete="off">
+      <button class="btn" id="scanPrint" disabled>🖨 PDF banakar print karein</button>
+      <button class="btn light" id="scanShare" disabled>📤 PDF save / share karein</button>
+    </section>
+  </div>
 </main>
+
+<!-- ===== Scan page editor ===== -->
+<div id="editor" class="hidden">
+  <div class="edTop"><button id="edClose">✕</button><span id="edTitle">Page 1</span><button id="edDone">✓ Theek hai</button></div>
+  <div class="edStage" id="edStage"><canvas id="edCanvas"></canvas>
+    <div class="hd" data-k="0"></div><div class="hd" data-k="1"></div><div class="hd" data-k="2"></div><div class="hd" data-k="3"></div>
+    <svg id="edLines"><polygon id="edPoly"/></svg>
+  </div>
+  <div class="edBottom">
+    <div class="seg dark" id="edFilter"><button data-v="orig">Asli</button><button data-v="doc">📄 Document</button><button data-v="gray">Grey</button></div>
+    <div class="edBtns"><button id="edRotate">⟳ Ghumaiye</button><button id="edFull">⛶ Poora page</button><button id="edDel">🗑 Hataiye</button></div>
+  </div>
+</div>
 
 <div id="scanner" class="hidden">
   <video id="scanVideo" playsinline muted></video>
@@ -218,6 +310,7 @@
 </div>
 <canvas id="scanCanvas" class="hidden"></canvas>
 <script src="/jsQR.min.js" defer></script>
+<script src="/scan.js" defer></script>
 
 <script>
 (() => {
@@ -267,6 +360,8 @@
   function show(screen) {
     $("pairScreen").classList.toggle("hidden", screen !== "pair");
     $("mainScreen").classList.toggle("hidden", screen !== "main");
+    $("scanScreen").classList.toggle("hidden", screen !== "scan");
+    window.scrollTo(0, 0);
     if (screen === "pair") $("pairCancel").classList.toggle("hidden", !laptops.length);
     if (screen === "main") renderLaptop();
   }
@@ -419,8 +514,11 @@
     if (r.status === 401) return unpaired();
     if (!r.ok) { sel.innerHTML = "<option value=''>—</option>"; return msg($("msg"), "err", r.error || "Printer list nahi mili"); }
     if (!r.printers.length) { sel.innerHTML = "<option value=''>Laptop par koi printer nahi</option>"; return; }
-    printerStatus = r.status || {};
+    printerStatus = r.status || {}; printerCaps = r.caps || {}; scannersList = r.scanners || [];
+    $("openLaptopScan").classList.toggle("hidden", !scannersList.length);
+    $("lapScanBtn").classList.toggle("hidden", !scannersList.length);
     sel.innerHTML = r.printers.map(n => `<option value="${esc(n)}" ${n === r.default ? "selected" : ""}>${printerStatus[n] === "offline" ? "🔴 " : ""}${esc(n)}${n === r.default ? "  (default)" : ""}${printerStatus[n] === "offline" ? "  – offline" : ""}</option>`).join("");
+    updateCapsUI();
   }
   function unpaired() {
     const l = cur();
@@ -446,7 +544,86 @@
     $("go").disabled = !files.length;
     $("go").textContent = files.length > 1 ? `${files.length} files print karein` : "Print karein";
     if (!files.length) $("sharedNote").classList.add("hidden");
+    renderPreview();
   }
+
+  // ---------- preview (PDF ke pages ki chhoti tasveerein) ----------
+  const pv = { file: null, n: 0, token: 0 };
+  async function loadPdfJs() {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "/pdfjs/pdf.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.js";
+    return window.pdfjsLib;
+  }
+  const extOf = f => (f.name.split(".").pop() || "").toLowerCase();
+  const IMG_EXT = ["jpg", "jpeg", "png", "bmp", "gif", "webp"];
+  function rangesStr(idx) {
+    const a = [...idx].sort((x, y) => x - y).map(i => i + 1), out = [];
+    for (let k = 0; k < a.length; k++) {
+      let j = k; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++;
+      out.push(j > k ? `${a[k]}-${a[j]}` : `${a[k]}`); k = j;
+    }
+    return out.join(", ");
+  }
+  function selFromOpts(n) {
+    const all = [...Array(n).keys()];
+    if (opts.pages === "all") return new Set(all);
+    if (opts.pages === "odd") return new Set(all.filter(i => i % 2 === 0));
+    if (opts.pages === "even") return new Set(all.filter(i => i % 2 === 1));
+    const set = new Set();
+    for (const part of $("pageRange").value.replace(/\s/g, "").split(",")) {
+      const m = part.match(/^(\d*)(-?)(\d*)$/); if (!m || !part) continue;
+      const a = m[1] ? +m[1] : 1, b = m[2] ? (m[3] ? +m[3] : n) : a;
+      for (let i = a; i <= Math.min(b, n); i++) set.add(i - 1);
+    }
+    return set;
+  }
+  async function renderPreview() {
+    const f = files.length === 1 ? files[0] : null;
+    const ext = f ? extOf(f) : "";
+    if (!f || !(ext === "pdf" || IMG_EXT.includes(ext))) { $("preview").classList.add("hidden"); pv.file = null; pv.n = 0; return; }
+    if (pv.file === f) return syncPreview();
+    pv.file = f; pv.n = 0; const token = ++pv.token;
+    $("preview").classList.remove("hidden");
+    $("pvTitle").textContent = "Preview load ho raha hai…"; $("pvGrid").innerHTML = "";
+    const cell = (i, src) => `<div class="pv on" data-p="${i}"><img ${src ? `src="${src}"` : ""} alt=""><span class="tick">✔</span><span class="no">${i + 1}</span></div>`;
+    if (ext !== "pdf") { pv.n = 1; $("pvGrid").innerHTML = cell(0, URL.createObjectURL(f)); return syncPreview(); }
+    try {
+      const lib = await loadPdfJs();
+      const doc = await lib.getDocument({ data: await f.arrayBuffer() }).promise;
+      if (token !== pv.token) return;
+      pv.n = doc.numPages;
+      $("pvGrid").innerHTML = [...Array(pv.n).keys()].map(i => cell(i)).join("");
+      syncPreview();
+      for (let i = 0; i < Math.min(pv.n, 200); i++) {
+        if (token !== pv.token) return;
+        const page = await doc.getPage(i + 1);
+        const vp0 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 170 / vp0.width });
+        const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+        await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+        const img = $("pvGrid").querySelector(`[data-p="${i}"] img`);
+        if (img) img.src = c.toDataURL("image/jpeg", 0.7);
+      }
+    } catch (e) {
+      if (token === pv.token) { pv.n = 0; $("pvTitle").textContent = "Preview nahi ban paaya"; $("pvGrid").innerHTML = "<p class='hint'>Shayad PDF password wali hai. Print phir bhi ho sakta hai.</p>"; }
+    }
+  }
+  function syncPreview() {
+    if (!pv.n) return;
+    const sel = selFromOpts(pv.n);
+    $("pvGrid").querySelectorAll(".pv").forEach(el => el.classList.toggle("on", sel.has(+el.dataset.p)));
+    $("pvTitle").textContent = `Preview: ${sel.size} / ${pv.n} page chune`;
+  }
+  $("pvGrid").onclick = e => {
+    const el = e.target.closest(".pv"); if (!el || !pv.n) return;
+    const sel = selFromOpts(pv.n), i = +el.dataset.p;
+    sel.has(i) ? sel.delete(i) : sel.add(i);
+    if (sel.size === pv.n) opts.pages = "all";
+    else { opts.pages = "custom"; $("pageRange").value = rangesStr(sel); }
+    renderOpts();
+  };
+  $("pvAll").onclick = () => { opts.pages = "all"; renderOpts(); };
+  $("pvNone").onclick = () => { opts.pages = "custom"; $("pageRange").value = ""; renderOpts(); };
   $("fileList").onclick = e => { const i = e.target.dataset?.i; if (i !== undefined) { files.splice(+i, 1); renderFiles(); } };
   $("file").addEventListener("change", e => { $("msg").className = "msg"; addFiles([...e.target.files]); e.target.value = ""; });
 
@@ -474,11 +651,22 @@
 
   // ---------- print settings ----------
   const K_OPTS = "pb.opts";
-  const opts = Object.assign({ pages: "all", color: "color", nup: "1", fit: "fit", reverse: false }, load(K_OPTS, {}));
+  const opts = Object.assign({ pages: "all", color: "color", nup: "1", fit: "fit", reverse: false, paper: "default", duplex: "off" }, load(K_OPTS, {}));
   opts.pages = "all";  // page chunna har baar nayi file ke liye hota hai
   const LABEL = { all: "Saare page", odd: "Odd page", even: "Even page", color: "Color", bw: "B&W", fit: "", actual: "Asli size" };
+  const PAPER_LABEL = { default: "Printer jaisa", a4: "A4", letter: "Letter", legal: "Legal", a3: "A3", a5: "A5" };
+  let printerCaps = {}, scannersList = [];
+  const capsNow = () => printerCaps[$("printer").value] || { duplex: false, papers: [] };
+  function updateCapsUI() {
+    const c = capsNow();
+    $("paperRow").classList.toggle("hidden", !c.papers.length);
+    $("paperSeg").innerHTML = ["default", ...c.papers].map(k => `<button data-v="${k}">${PAPER_LABEL[k]}</button>`).join("");
+    $("duplexRow").classList.toggle("hidden", !c.duplex);
+    renderOpts();
+  }
+  $("printer").addEventListener("change", updateCapsUI);
   function renderOpts() {
-    document.querySelectorAll(".seg").forEach(seg => {
+    document.querySelectorAll(".seg[data-opt]").forEach(seg => {
       const k = seg.dataset.opt;
       seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", String(opts[k]) === b.dataset.v));
     });
@@ -487,11 +675,14 @@
     $("pagesHint").textContent = opts.pages === "odd" ? "Dono taraf chhaapne ke liye: pehle Odd chhaapiye, kaagaz palat kar printer mein daaliye, phir Even."
       : opts.pages === "custom" ? "Page number ya range, comma se alag (jaise 1-3, 5, 8-10)" : "";
     const pg = opts.pages === "custom" ? ("Page " + ($("pageRange").value.trim() || "?")) : LABEL[opts.pages];
+    const c = typeof capsNow === "function" ? capsNow() : { papers: [], duplex: false };
     $("optsSummary").textContent = [pg, LABEL[opts.color], opts.nup !== "1" ? `${opts.nup}/kaagaz` : "", LABEL[opts.fit],
+      c.papers.includes(opts.paper) ? PAPER_LABEL[opts.paper] : "", c.duplex && opts.duplex !== "off" ? "dono taraf" : "",
       opts.reverse ? "ulta" : ""].filter(Boolean).join(" • ");
     const { pages, ...keep } = opts; save(K_OPTS, keep);
+    syncPreview();
   }
-  document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+  document.querySelectorAll(".seg[data-opt]").forEach(seg => seg.addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     opts[seg.dataset.opt] = b.dataset.v; renderOpts();
     if (seg.dataset.opt === "pages" && b.dataset.v === "custom") $("pageRange").focus();
@@ -504,7 +695,10 @@
       pages = $("pageRange").value.trim();
       if (!/^\s*\d+\s*(-\s*\d*\s*)?(,\s*\d+\s*(-\s*\d*\s*)?)*,?\s*$/.test(pages)) return null;
     }
-    return { pages, color: opts.color, nup: Number(opts.nup), fit: opts.fit, reverse: !!opts.reverse };
+    if (!pages) return null;
+    const c = capsNow();
+    return { pages, color: opts.color, nup: Number(opts.nup), fit: opts.fit, reverse: !!opts.reverse,
+             paper: c.papers.includes(opts.paper) ? opts.paper : "default", duplex: c.duplex ? opts.duplex : "off" };
   }
   renderOpts();
 
@@ -516,15 +710,21 @@
 
   // ---------- print ----------
   const STATUS = { waiting: "⏳ laptop ko bheja", accepted: "⏳ laptop le raha hai", downloading: "⬇️ laptop le raha hai",
-                   printing: "🖨 print ho raha hai", done: "✅ ho gaya", error: "❌" };
-  let sendOpts = {};
+                   queued: "⏳ line mein", printing: "🖨 print ho raha hai", done: "✅ ho gaya", error: "❌", cancelled: "⛔ cancel" };
+  let sendOpts = {}, cancelReq = false, curJob = null, curXhr = null;
+  $("cancelBtn").onclick = async () => {
+    cancelReq = true; $("cancelBtn").disabled = true; $("cancelBtn").textContent = "Cancel ho raha hai…";
+    if (curXhr) curXhr.abort();
+    if (curJob) await api(`/api/jobs/${curJob}/cancel`, { method: "POST", headers: { "X-PB-Token": cur().token } }).catch(() => {});
+  };
   function upload(file, l) {
     return new Promise(resolve => {
       const fd = new FormData();
       fd.append("file", file); fd.append("device_id", l.id); fd.append("copies", copies);
       fd.append("printer", $("printer").value); fd.append("phone", phoneName);
       fd.append("options", JSON.stringify(sendOpts));
-      const xhr = new XMLHttpRequest();
+      const xhr = curXhr = new XMLHttpRequest();
+      xhr.onabort = () => resolve({ ok: false, cancelled: true });
       xhr.open("POST", "/api/jobs");
       xhr.setRequestHeader("X-PB-Token", l.token);
       xhr.upload.onprogress = e => { if (e.lengthComputable) $("bar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%"; };
@@ -543,6 +743,7 @@
       $("st" + i).textContent = STATUS[r.status] || r.status;
       if (r.status === "done") return { ok: true };
       if (r.status === "error") return { ok: false, error: r.message };
+      if (r.status === "cancelled") return { ok: false, cancelled: true };
     }
     return { ok: false, error: "Laptop se jawab nahi aaya" };
   }
@@ -556,20 +757,28 @@
     if (printerStatus[$("printer").value] === "offline" &&
         !confirm("Ye printer abhi OFFLINE dikh raha hai (band hai ya cable nahi lagi). Phir bhi bhejein?")) return;
     $("go").disabled = true; $("bar").style.display = "block";
-    let okCount = 0; const errors = [];
+    cancelReq = false; curJob = null;
+    $("cancelBtn").disabled = false; $("cancelBtn").textContent = "⛔ Print cancel karein"; $("cancelBtn").classList.remove("hidden");
+    let okCount = 0, cancelled = 0; const errors = [];
     for (let i = 0; i < files.length; i++) {
+      if (cancelReq) { $("st" + i).textContent = STATUS.cancelled; cancelled++; continue; }
       $("bar").firstElementChild.style.width = "0";
       $("st" + i).textContent = "⬆️ upload…";
       msg($("msg"), "info", `${i + 1}/${files.length}: ${files[i].name}`);
       let r = await upload(files[i], l);
+      curXhr = null;
       if (r.status === 401) { unpaired(); break; }
-      if (r.ok) r = await waitJob(r.job, i);
-      $("st" + i).textContent = r.ok ? "✅ ho gaya" : "❌";
-      if (r.ok) { okCount++; addHistory(files[i].name, copies, l.name); } else errors.push(`${files[i].name}: ${r.error}`);
+      if (r.ok) { curJob = r.job; if (cancelReq) $("cancelBtn").onclick(); r = await waitJob(r.job, i); curJob = null; }
+      $("st" + i).textContent = r.ok ? STATUS.done : r.cancelled ? STATUS.cancelled : "❌";
+      if (r.ok) { okCount++; addHistory(files[i].name, copies, l.name); }
+      else if (r.cancelled) cancelled++;
+      else errors.push(`${files[i].name}: ${r.error}`);
     }
-    $("bar").style.display = "none";
-    if (!errors.length && okCount) msg($("msg"), "ok", okCount > 1 ? `✅ ${okCount} files print ho gayi!` : `✅ Print ho gaya! "${l.name}" ke printer se nikal raha hai.`);
-    else if (errors.length) msg($("msg"), "err", errors.join("\n"));
+    $("bar").style.display = "none"; $("cancelBtn").classList.add("hidden");
+    if (errors.length) msg($("msg"), "err", errors.join("\n"));
+    else if (cancelled && !okCount) msg($("msg"), "info", "⛔ Print cancel kar diya gaya");
+    else if (cancelled) msg($("msg"), "info", `✅ ${okCount} print hui, ⛔ ${cancelled} cancel hui`);
+    else if (okCount) msg($("msg"), "ok", okCount > 1 ? `✅ ${okCount} files print ho gayi!` : `✅ Print ho gaya! "${l.name}" ke printer se nikal raha hai.`);
     files = []; setTimeout(renderFiles, 3000);
   };
 
@@ -583,6 +792,18 @@
     $("histEmpty").classList.toggle("hidden", h.length > 0);
     $("hist").innerHTML = h.map(x => `<li><span>📄 ${esc(x.name)} ×${x.n}</span><span class="t">${new Date(x.t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></li>`).join("");
   }
+
+  // ---------- scan.js ke liye ----------
+  window.PB = {
+    $, api, msg, esc, cur, show, phoneName,
+    isOnline: () => online, scanners: () => scannersList,
+    printFile(file) {  // scan ki PDF ko print list mein daalo
+      files = [file]; $("sharedNote").classList.add("hidden"); renderFiles(); show("main");
+      opts.pages = "all"; renderOpts();
+      msg($("msg"), "ok", "📄 Scan ki PDF taiyaar hai. Settings dekh kar \"Print karein\" dabaiye.");
+      setTimeout(() => $("go").scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    },
+  };
 
   // ---------- install ----------
   let installEvt = null;

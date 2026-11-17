@@ -1,5 +1,5 @@
 """
-PrintBridge - printing ka hissa (v0.6)
+PrintBridge - printing ka hissa (v0.7)
 
 Har file ko "pages" (images) mein badal kar chhaapte hain, taaki saari settings har file par chalein:
   - Photo (jpg/png/...)      -> 1 page
@@ -13,6 +13,8 @@ Print settings (opts):
   nup       : 1 | 2 | 4        (ek kaagaz par kitne page)
   fit       : "fit" | "actual" (page par fit, ya asli size)
   reverse   : True/False       (aakhri page pehle)
+  paper     : "default" | "a4" | "letter" | "legal" | "a3" | "a5"
+  duplex    : "off" | "long" | "short"  (dono taraf; sirf jin printers mein suvidha ho)
 
 Linux/Mac par: CUPS ka `lp` (settings: pages, bw, nup, reverse ke lp options).
 Test mode (PRINTBRIDGE_TEST=1): printer ki jagah "test_prints" folder mein har kaagaz ki PNG.
@@ -39,7 +41,13 @@ MAX_PAGES = 500
 A4 = (2480, 3508)  # 300 DPI par A4 (pixels)
 TEST_PRINTER = "Test Printer (sirf folder me save)"
 
-DEFAULT_OPTS = {"pages": "all", "color": "color", "nup": 1, "fit": "fit", "reverse": False}
+DEFAULT_OPTS = {"pages": "all", "color": "color", "nup": 1, "fit": "fit", "reverse": False,
+                "paper": "default", "duplex": "off"}
+PAPERS = {"a4": 9, "letter": 1, "legal": 5, "a3": 8, "a5": 11}  # Windows DMPAPER_* numbers
+
+
+class Cancelled(Exception):
+    pass
 
 
 class PrintError(Exception):
@@ -60,6 +68,8 @@ def clean_opts(opts):
         o["nup"] = 1
     o["fit"] = "actual" if opts.get("fit") == "actual" else "fit"
     o["reverse"] = bool(opts.get("reverse"))
+    o["paper"] = opts.get("paper") if opts.get("paper") in PAPERS else "default"
+    o["duplex"] = opts.get("duplex") if opts.get("duplex") in ("long", "short") else "off"
     return o
 
 
@@ -255,7 +265,7 @@ def _ms_office_to_pdf(path, ext, out):
 def list_printers():
     """(printers ki list, default printer, {naam: 'offline'/'ready'}) lautata hai."""
     if TEST_MODE:
-        return [TEST_PRINTER], TEST_PRINTER, {TEST_PRINTER: "ready"}
+        return [TEST_PRINTER], TEST_PRINTER, {TEST_PRINTER: "ready"}, {TEST_PRINTER: {"duplex": True, "papers": list(PAPERS)}}
     if IS_WIN:
         import win32print
         flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
@@ -264,8 +274,10 @@ def list_printers():
             default = win32print.GetDefaultPrinter()
         except Exception:
             default = names[0] if names else None
-        status = {n: _win_printer_status(n) for n in names}
-        return names, default, status
+        status, caps = {}, {}
+        for n in names:
+            status[n], caps[n] = _win_printer_info(n)
+        return names, default, status, caps
     names, default = [], None
     try:
         out = subprocess.run(["lpstat", "-e"], capture_output=True, text=True, timeout=10).stdout
@@ -277,25 +289,39 @@ def list_printers():
         pass
     if default not in names:
         default = names[0] if names else None
-    return names, default, {n: "ready" for n in names}
+    return names, default, {n: "ready" for n in names}, {n: {"duplex": False, "papers": []} for n in names}
 
 
-def _win_printer_status(name):
+def _win_printer_info(name):
+    """Printer offline hai ya nahi, aur kya-kya kar sakta hai (dono taraf, kaagaz ke size)."""
     import win32print
+    status, caps = "ready", {"duplex": False, "papers": []}
     try:
         h = win32print.OpenPrinter(name)
         try:
             info = win32print.GetPrinter(h, 2)
         finally:
             win32print.ClosePrinter(h)
-        offline = (info.get("Attributes", 0) & 0x400) or (info.get("Status", 0) & 0x80)  # WORK_OFFLINE / OFFLINE
-        return "offline" if offline else "ready"
+        if (info.get("Attributes", 0) & 0x400) or (info.get("Status", 0) & 0x80):  # WORK_OFFLINE / OFFLINE
+            status = "offline"
+        port = info.get("pPortName") or ""
+        try:
+            caps["duplex"] = win32print.DeviceCapabilities(name, port, 7) == 1  # DC_DUPLEX
+        except Exception:
+            pass
+        try:
+            ids = set(win32print.DeviceCapabilities(name, port, 2) or [])  # DC_PAPERS
+            caps["papers"] = [k for k, v in PAPERS.items() if v in ids]
+        except Exception:
+            pass
     except Exception:
-        return "ready"
+        pass
+    return status, caps
 
 
 # ---------------------------------------------------------------- printing
-def print_file(path, printer, copies=1, title="PrintBridge", opts=None):
+def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=None, spool=None):
+    """cancel: threading.Event (set ho to print rok do). spool: list, isme Windows print job IDs aate hain."""
     ext = os.path.splitext(path)[1].lower()
     if ext not in ALLOWED_EXT:
         raise PrintError(f"'{ext}' file print nahi ho sakti")
@@ -328,35 +354,92 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None):
     try:
         select_pages(opts["pages"], doc.count)  # galat range ho to print shuru hone se pehle hi bata do
         if TEST_MODE:
-            return _test_print(doc, opts, copies, os.path.basename(path))
-        sheets = _win_draw(printer, title, lambda: compose_sheets(doc, opts), copies, opts["fit"])
+            return _test_print(doc, opts, copies, os.path.basename(path), cancel) + \
+                (f" [paper={opts['paper']}, duplex={opts['duplex']}]" if opts["paper"] != "default" or opts["duplex"] != "off" else "")
+        sheets, note2 = _win_draw(printer, title, lambda: compose_sheets(doc, opts), copies, opts, cancel, spool)
+        note += note2
     finally:
         doc.close()
         if work != path:
             shutil.rmtree(os.path.dirname(work), ignore_errors=True)
-    return f"{sheets} kaagaz × {copies} copy '{printer}' par bhej di gayi"
+    return f"{sheets} kaagaz × {copies} copy '{printer}' par bhej di gayi{note}"
 
 
-def _test_print(doc, opts, copies, name):
+def _test_print(doc, opts, copies, name, cancel=None):
     os.makedirs(OUT_DIR, exist_ok=True)
     base = os.path.splitext(name)[0]
     n = 0
+    delay = float(os.environ.get("PRINTBRIDGE_TEST_DELAY", "0"))
     for n, (img, _) in enumerate(compose_sheets(doc, opts, dpi=60), 1):
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
+        time.sleep(delay)
         img.save(os.path.join(OUT_DIR, f"{base}_sheet{n}.png"))
     return f"TEST: {n} kaagaz × {copies} copy save hui"
 
 
-def _win_draw(printer, title, make_sheets, copies, fit):
-    """Har sheet ko printer ke kaagaz par chhaapo. Kitne kaagaz chhape, wo lautao."""
+def _make_dc(printer, opts):
+    """Printer ka DC banao. Kaagaz ka size / dono taraf chahiye to printer ki DEVMODE badal kar."""
     import win32con
+    import win32gui
+    import win32print
     import win32ui
-    from PIL import ImageWin
-
+    if opts["paper"] != "default" or opts["duplex"] != "off":
+        try:
+            h = win32print.OpenPrinter(printer)
+            try:
+                dm = win32print.GetPrinter(h, 2)["pDevMode"]
+                if dm is None:
+                    raise RuntimeError("no devmode")
+                if opts["paper"] != "default":
+                    dm.PaperSize = PAPERS[opts["paper"]]
+                    dm.Fields |= win32con.DM_PAPERSIZE
+                if opts["duplex"] != "off":
+                    dm.Duplex = 2 if opts["duplex"] == "long" else 3  # DMDUP_VERTICAL / DMDUP_HORIZONTAL
+                    dm.Fields |= win32con.DM_DUPLEX
+                win32print.DocumentProperties(0, h, printer, dm, dm,
+                                              win32con.DM_IN_BUFFER | win32con.DM_OUT_BUFFER)
+            finally:
+                win32print.ClosePrinter(h)
+            return win32ui.CreateDCFromHandle(win32gui.CreateDC("WINSPOOL", printer, dm)), ""
+        except Exception:
+            note = " (kaagaz ka size / dono taraf wali setting printer ne nahi maani)"
+    else:
+        note = ""
     hdc = win32ui.CreateDC()
     try:
         hdc.CreatePrinterDC(printer)
     except Exception as e:
         raise PrintError(f"Printer '{printer}' se baat nahi ho paayi") from e
+    return hdc, note
+
+
+def cancel_spool(printer, job_ids):
+    """Windows print queue mein pahunch chuke jobs ko hatao."""
+    if not IS_WIN or not job_ids:
+        return
+    import win32print
+    try:
+        h = win32print.OpenPrinter(printer)
+        try:
+            for jid in job_ids:
+                try:
+                    win32print.SetJob(h, jid, 0, None, win32print.JOB_CONTROL_DELETE)
+                except Exception:
+                    pass
+        finally:
+            win32print.ClosePrinter(h)
+    except Exception:
+        pass
+
+
+def _win_draw(printer, title, make_sheets, copies, opts, cancel=None, spool=None):
+    """Har sheet ko printer ke kaagaz par chhaapo. (kitne kaagaz, note) lautao."""
+    import win32con
+    from PIL import ImageWin
+
+    hdc, note = _make_dc(printer, opts)
+    fit = opts["fit"]
     count = 0
     try:
         pw = hdc.GetDeviceCaps(win32con.HORZRES)
@@ -364,10 +447,16 @@ def _win_draw(printer, title, make_sheets, copies, fit):
         dpx = hdc.GetDeviceCaps(win32con.LOGPIXELSX)
         dpy = hdc.GetDeviceCaps(win32con.LOGPIXELSY)
         for _ in range(copies):
-            hdc.StartDoc(title)
+            if cancel is not None and cancel.is_set():
+                raise Cancelled()
+            jid = hdc.StartDoc(title)
+            if spool is not None and isinstance(jid, int) and jid > 0:
+                spool.append(jid)
             count = 0
             try:
                 for img, inches in make_sheets():
+                    if cancel is not None and cancel.is_set():
+                        raise Cancelled()
                     rotated = False
                     if (img.width > img.height) != (pw > ph):  # aada page seedhe kaagaz par -> ghumao
                         img = img.rotate(90, expand=True)
@@ -386,7 +475,7 @@ def _win_draw(printer, title, make_sheets, copies, fit):
                     ImageWin.Dib(img).draw(hdc.GetHandleOutput(), (x, y, x + w, y + h))
                     hdc.EndPage()
                     count += 1
-            except Exception:
+            except BaseException:
                 try:
                     hdc.AbortDoc()
                 except Exception:
@@ -395,7 +484,7 @@ def _win_draw(printer, title, make_sheets, copies, fit):
             hdc.EndDoc()
     finally:
         hdc.DeleteDC()
-    return count
+    return count, note
 
 
 def _win_shell_print(path, printer, copies):
