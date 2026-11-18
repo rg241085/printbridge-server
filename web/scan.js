@@ -19,6 +19,7 @@
       $("scanName").value = `Scan_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}`;
     }
     renderGrid();
+    restoreSession();
   }
   $("openScan").onclick = openScan;
   $("openLaptopScan").onclick = () => { openScan(); laptopScan(); };
@@ -28,13 +29,116 @@
 
   function renderGrid() {
     $("scanGrid").innerHTML = pages.length ? pages.map((p, i) =>
-      `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt=""><span class="no">${i + 1}</span><span class="fl">${FNAMES[p.filter] || ""}</span></div>`).join("")
+      `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt="" draggable="false"><span class="no">${i + 1}</span><span class="fl">${FNAMES[p.filter] || ""}</span></div>`).join("")
       + `<div class="sp add" id="spAdd"><b>＋</b><span>Aur page</span></div>`
       : `<p class="hint" style="grid-column:1/-1">Abhi koi page nahi. Neeche "Scan karein" dabaiye.</p>`;
-    $("scanPrint").disabled = $("scanShare").disabled = !pages.length;
+    $("scanPrint").disabled = $("scanShare").disabled = $("scanShareImg").disabled = !pages.length;
+    $("scanClear").classList.toggle("hidden", !pages.length);
+    saveSession();
     $("scanPrint").textContent = pages.length > 1 ? `🖨 ${pages.length} page ki PDF banakar print karein` : "🖨 PDF banakar print karein";
   }
-  $("scanGrid").onclick = e => { const el = e.target.closest(".sp"); if (!el) return; if (el.id === "spAdd") return openLive(); openEditor(+el.dataset.i); };
+  $("scanGrid").onclick = e => {
+    if (gd && gd.justDragged) { gd = null; return; }
+    const el = e.target.closest(".sp"); if (!el) return; if (el.id === "spAdd") return openLive(); openEditor(+el.dataset.i);
+  };
+
+  // ---- page ko dabakar rakho aur khiskao = kram badlo
+  let gd = null;
+  $("scanGrid").addEventListener("pointerdown", e => {
+    const el = e.target.closest(".sp:not(.add)"); if (!el || e.button > 0) return;
+    gd = { el, from: +el.dataset.i, x: e.clientX, y: e.clientY, active: false, to: null };
+    gd.timer = setTimeout(() => startGridDrag(e.clientX, e.clientY), 380);
+  });
+  function startGridDrag(x, y) {
+    if (!gd) return;
+    gd.active = true; gd.el.classList.add("dragging");
+    if (navigator.vibrate) navigator.vibrate(25);
+    const g = document.createElement("div"); g.className = "spGhost";
+    g.style.backgroundImage = `url(${pages[gd.from].url})`; g.style.left = x + "px"; g.style.top = y + "px";
+    document.body.appendChild(g); gd.ghost = g;
+  }
+  document.addEventListener("pointermove", e => {
+    if (!gd) return;
+    if (!gd.active) { if (Math.hypot(e.clientX - gd.x, e.clientY - gd.y) > 10) { clearTimeout(gd.timer); gd = null; } return; }  // scroll kar rahe hain
+    gd.ghost.style.left = e.clientX + "px"; gd.ghost.style.top = e.clientY + "px";
+    document.querySelectorAll("#scanGrid .dropL, #scanGrid .dropR").forEach(x => x.classList.remove("dropL", "dropR"));
+    const t = document.elementFromPoint(e.clientX, e.clientY), sp = t && t.closest("#scanGrid .sp:not(.add)");
+    gd.to = null;
+    if (sp) {
+      const r = sp.getBoundingClientRect(), right = e.clientX > r.left + r.width / 2, j = +sp.dataset.i;
+      sp.classList.add(right ? "dropR" : "dropL");
+      let to = right ? j + 1 : j; if (to > gd.from) to--;   // nayi jagah
+      gd.to = to;
+    }
+    // kinaare par pahunche to list khud scroll ho
+    const gr = $("scanGrid").getBoundingClientRect();
+    if (e.clientY < gr.top + 30) $("scanGrid").scrollTop -= 12; else if (e.clientY > gr.bottom - 30) $("scanGrid").scrollTop += 12;
+  });
+  const endGridDrag = () => {
+    if (!gd) return;
+    clearTimeout(gd.timer);
+    if (!gd.active) { gd = null; return; }
+    gd.ghost.remove();
+    const { from, to } = gd;
+    gd = { justDragged: true }; setTimeout(() => { if (gd && gd.justDragged) gd = null; }, 400);
+    if (to != null && to !== from) {
+      const [p] = pages.splice(from, 1); pages.splice(to, 0, p);
+      PB.toast(`Page ${from + 1} ab ${to + 1} number par hai`);
+    }
+    renderGrid();
+  };
+  document.addEventListener("pointerup", endGridDrag);
+  document.addEventListener("pointercancel", endGridDrag);
+  document.addEventListener("touchmove", e => { if (gd && gd.active) e.preventDefault(); }, { passive: false });
+  $("scanGrid").addEventListener("contextmenu", e => e.preventDefault());
+  $("scanGrid").addEventListener("dragstart", e => e.preventDefault());  // lamba dabane par menu nahi
+
+  // ---- scan apne aap save (app band ho jaye to bhi pages bache rahein)
+  const SDB = () => new Promise((res, rej) => {
+    const r = indexedDB.open("pb-scan", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("s");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  let saveT = 0, restoring = false;
+  function saveSession() {
+    if (restoring) return;
+    clearTimeout(saveT);
+    saveT = setTimeout(async () => {
+      try {
+        const recs = [];
+        for (const p of pages) {
+          if (!p.srcBlob) p.srcBlob = await new Promise(r => p.src.toBlob(r, "image/jpeg", 0.9));
+          recs.push({ src: p.srcBlob, corners: p.corners, rot: p.rot, filter: p.filter });
+        }
+        const db = await SDB(), tx = db.transaction("s", "readwrite");
+        tx.objectStore("s").put({ pages: recs, name: $("scanName").value, t: Date.now() }, "session");
+        tx.oncomplete = () => db.close();
+      } catch (e) {}
+    }, 600);
+  }
+  async function restoreSession() {
+    if (pages.length) return;
+    try {
+      const db = await SDB();
+      const rec = await new Promise(res => { const r = db.transaction("s").objectStore("s").get("session"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+      db.close();
+      if (!rec || !rec.pages || !rec.pages.length || pages.length) return;
+      restoring = true; smsg("info", `⏳ Pichhle ${rec.pages.length} page wapas la rahe hain…`);
+      for (const r of rec.pages) {
+        const src = await fileToCanvas(r.src);
+        const page = { src, srcBlob: r.src, corners: r.corners, rot: r.rot || 0, filter: r.filter || "magic" };
+        await processPage(page); pages.push(page);
+      }
+      if (rec.name) $("scanName").value = rec.name;
+      restoring = false; renderGrid();
+      smsg("ok", `↩ Pichhli baar ke ${pages.length} page wapas aa gaye. Naya scan chahiye to neeche "Sab pages hatakar naya scan" dabaiye.`);
+    } catch (e) { restoring = false; }
+  }
+  $("scanClear").onclick = () => {
+    if (!pages.length || !confirm(`Sabhi ${pages.length} page hata kar naya scan shuru karein?`)) return;
+    pages.forEach(p => p.url && URL.revokeObjectURL(p.url)); pages.length = 0;
+    $("scanName").value = ""; openScan(); smsg("ok", "Naya scan: neeche button se page jodiye.");
+  };
 
   // ---------------------------------------------------------------- pages jodna
   async function fileToCanvas(blob) {
@@ -178,8 +282,9 @@
     if (lv.auto && prog >= 1 && now - lv.lastShot > 1200) captureLive(lv.target);
   }
 
-  async function openLive() {
-    if (!navigator.mediaDevices?.getUserMedia) return $("camIn").click();  // purana phone: camera app
+  async function openLive(opts = {}) {
+    lv.replace = Number.isInteger(opts.replace) ? opts.replace : null;
+    if (!navigator.mediaDevices?.getUserMedia) { if (lv.replace != null) return; return $("camIn").click(); }  // purana phone: camera app
     try {
       lv.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
         facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
@@ -207,8 +312,10 @@
     $("live").classList.add("hidden");
   }
   function setMode() {
-    document.querySelectorAll("#lvMode button").forEach(b => b.classList.toggle("on", (b.dataset.v === "batch") === lv.batch));
-    $("lvDone").classList.toggle("hidden", !lv.batch);
+    const batch = lv.batch && lv.replace == null;   // page badalna = hamesha ek page
+    document.querySelectorAll("#lvMode button").forEach(b => b.classList.toggle("on", (b.dataset.v === "batch") === batch));
+    $("lvMode").classList.toggle("hidden", lv.replace != null);
+    $("lvDone").classList.toggle("hidden", !batch);
   }
   // photo ki chhoti tasveer udkar neeche kone mein jaati hai
   function flyThumb(url, q) {
@@ -242,6 +349,14 @@
       const corners = (window.PBDetect && window.PBDetect.detect(src)) || liveQ || FULL();
       const page = { src, corners, rot: 0, filter: defFilter() };
       await processPage(page);
+      if (lv.replace != null && pages[lv.replace]) {   // kharab page ki jagah naya
+        const i = lv.replace, old = pages[i]; if (old.url) URL.revokeObjectURL(old.url);
+        page.filter = old.filter; await processPage(page);
+        pages[i] = page; lv.replace = null;
+        stopLive(); renderGrid(); openEditor(i, pages, renderGrid, "crop");
+        PB.toast(`Page ${i + 1} badal diya`);
+        return;
+      }
       pages.push(page); lv.added++;
       if (!lv.batch) {  // ek page: seedha kone/rang wali screen
         stopLive(); renderGrid(); openEditor(pages.length - 1, pages, renderGrid, "crop");
@@ -258,10 +373,12 @@
     } finally { lv.busy = false; lv.stableSince = performance.now(); }
   }
   function liveDone() {
+    const wasReplace = lv.replace != null; lv.replace = null;
     stopLive(); renderGrid();
+    if (wasReplace) return;
     if (lv.added) smsg("ok", `✅ ${lv.added} page scan hue. Kisi page par tap karke kone ya rang badal sakte hain.`);
   }
-  $("liveBtn").onclick = openLive;
+  $("liveBtn").onclick = () => openLive();
   $("lvClose").onclick = liveDone;
   $("lvDone").onclick = liveDone;
   $("lvThumb").onclick = () => { if (lv.added) liveDone(); };
@@ -542,9 +659,8 @@
     $("edDone").textContent = crop ? "Aage →" : "✓ Theek hai";
     $("edPrev").classList.toggle("hidden", crop || !isPages() || ed.i === 0);
     $("edNext").classList.toggle("hidden", crop || !isPages() || ed.i >= pages.length - 1);
-    $("edMoveL").classList.toggle("hidden", !isPages() || pages.length < 2);
-    $("edMoveR").classList.toggle("hidden", !isPages() || pages.length < 2);
     $("edAll").classList.toggle("hidden", !isPages() || pages.length < 2);
+    $("edRetake").classList.toggle("hidden", !isPages());
     $("edDots").innerHTML = isPages() && pages.length > 1 && pages.length <= 20 ? pages.map((_, k) => `<i class="${k === ed.i ? "on" : ""}"></i>`).join("") : "";
     if (!crop) { $("edCanvas").style.opacity = ".15"; $("edBusy").classList.remove("hidden"); }
     requestAnimationFrame(() => crop ? drawCrop() : drawFilter());
@@ -763,14 +879,19 @@
     $("edNext").classList.toggle("hidden", ed.step === "crop" || ed.i >= pages.length - 1);
     renderGrid();
   }
-  $("edMoveL").onclick = () => movePage(-1);
-  $("edMoveR").onclick = () => movePage(1);
   $("edDel").onclick = () => {
-    if (!confirm("Ye page hata dein?")) return;
-    const { list, i, onDone } = ed;
-    const p = list[i]; if (p && p.url) URL.revokeObjectURL(p.url);
+    const { list, i, onDone } = ed, p = list[i];
     if (list === pages) list.splice(i, 1); else list[i] = null;
     closeEditor(); onDone();
+    PB.toast(list === pages ? `Page ${i + 1} hata diya` : "Hata diya", "↩ Wapas laao", () => {
+      if (list === pages) list.splice(Math.min(i, list.length), 0, p); else list[i] = p;
+      onDone();
+    }, 6000);
+  };
+  $("edRetake").onclick = async () => {
+    const i = ed.i;
+    await saveEd(); closeEditor(); renderGrid();
+    openLive({ replace: i });
   };
   $("edClose").onclick = () => {
     if (ed && ed.step === "crop" && ed.back) { ed.step = "filter"; ed.corners = ed.back; ed.back = null; return showStep(); }
@@ -822,34 +943,66 @@
     return new File(parts, fileName.replace(/[\\/:*?"<>|]+/g, "_"), { type: "application/pdf" });
   }
 
-  function makePdf() {
-    const layout = pages.map(p => {
-      const land = p.w > p.h, W = land ? 842 : 595, H = land ? 595 : 842;  // A4 (points)
-      const s = Math.min(W / p.w, H / p.h), w = p.w * s, h = p.h * s;
-      return { W, H, imgs: [{ blob: p.blob, w: p.w, h: p.h }], draws: [{ img: 0, x: (W - w) / 2, y: (H - h) / 2, w, h }] };
-    });
+  let quality = "normal";
+  try { quality = localStorage.getItem("pb.scanQual") || "normal"; } catch (e) {}
+  const syncQual = () => document.querySelectorAll("#scanQual button").forEach(b => b.classList.toggle("on", b.dataset.v === quality));
+  syncQual();
+  $("scanQual").onclick = e => { const b = e.target.closest("button"); if (!b) return; quality = b.dataset.v; syncQual(); try { localStorage.setItem("pb.scanQual", quality); } catch (x) {} };
+  // quality ke hisaab se page ki photo: chhoti = kam pixel/kam KB, HD = zyada pixel
+  async function pageImage(p) {
+    if (quality === "normal") return { blob: p.blob, w: p.w, h: p.h };
+    const hd = quality === "hd";
+    const base = hd ? warp(p, 2400) : copyCanvas(warpCached(p), 1240);
+    const out = applyFilter(rotate(base, p.rot), p.filter);
+    const blob = await new Promise(r => out.toBlob(r, "image/jpeg", hd ? 0.92 : (p.filter === "orig" || p.filter === "light" || p.filter === "magic" ? 0.6 : 0.55)));
+    return { blob, w: out.width, h: out.height };
+  }
+  async function makePdf() {
+    const layout = [];
+    for (const p of pages) {
+      const im = await pageImage(p);
+      const land = im.w > im.h, W = land ? 842 : 595, H = land ? 595 : 842;  // A4 (points)
+      const s = Math.min(W / im.w, H / im.h), w = im.w * s, h = im.h * s;
+      layout.push({ W, H, imgs: [im], draws: [{ img: 0, x: (W - w) / 2, y: (H - h) / 2, w, h }] });
+    }
     return writePdf(layout, ($("scanName").value.trim() || "Scan") + ".pdf");
   }
+  const kb = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
 
-  async function sharePdf(file, msgFn) {
+  async function shareFiles(list, msgFn, title) {
     try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: file.name }); return; }
-    } catch (e) { if (e.name === "AbortError") return; }
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(file); a.download = file.name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    msgFn("ok", `✅ ${file.name} download ho gayi`);
+      if (navigator.canShare && navigator.canShare({ files: list })) { await navigator.share({ files: list, title }); return true; }
+    } catch (e) { if (e.name === "AbortError") return true; }
+    for (const file of list) {   // share nahi ho sakta (computer) -> download
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(file); a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+    msgFn("ok", `✅ ${list.length > 1 ? list.length + " files" : list[0].name} download ho gayi`);
+    return false;
   }
+  async function sharePdf(file, msgFn) { return shareFiles([file], msgFn, file.name); }
 
-  $("scanPrint").onclick = async () => {
-    if (!pages.length) return;
-    $("scanPrint").disabled = true;
-    try { PB.printFile(await makePdf()); }
-    catch (e) { smsg("err", "PDF nahi ban paayi"); }
-    finally { $("scanPrint").disabled = false; }
-  };
-  $("scanShare").onclick = async () => { if (pages.length) sharePdf(await makePdf(), smsg); };
+  async function busy(btn, fn) {
+    const t = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ Ban rahi hai…";
+    try { await fn(); } catch (e) { smsg("err", "PDF nahi ban paayi"); }
+    finally { btn.disabled = false; btn.innerHTML = t; }
+  }
+  $("scanPrint").onclick = () => pages.length && busy($("scanPrint"), async () => PB.printFile(await makePdf()));
+  $("scanShare").onclick = () => pages.length && busy($("scanShare"), async () => {
+    const f = await makePdf();
+    smsg("info", `📄 ${f.name}: ${pages.length} page, ${kb(f.size)}${quality === "small" ? " (chhoti)" : quality === "hd" ? " (HD)" : ""}`);
+    await sharePdf(f, smsg);
+  });
+  $("scanShareImg").onclick = () => pages.length && busy($("scanShareImg"), async () => {
+    const base = ($("scanName").value.trim() || "Scan").replace(/[\\/:*?"<>|]+/g, "_"), list = [];
+    for (const [k, p] of pages.entries()) {
+      const im = await pageImage(p);
+      list.push(new File([im.blob], pages.length > 1 ? `${base}_${k + 1}.jpg` : `${base}.jpg`, { type: "image/jpeg" }));
+    }
+    await shareFiles(list, smsg, base);
+  });
 
   // ---------------------------------------------------------------- ID card mode
   const CARD_MM = [85.6, 54], MM = 72 / 25.4;          // ID-1 card size (Aadhaar, PAN, DL, ATM card)
@@ -938,5 +1091,5 @@
   $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };
 
   // test ke liye
-  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
+  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();

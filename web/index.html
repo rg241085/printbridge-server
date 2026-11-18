@@ -211,6 +211,16 @@
   .edBtns button:disabled { opacity:.4; }
   .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin:22px 0 4px; }
   .or::before, .or::after { content:""; flex:1; height:1px; background:#e5e7eb; }
+  #toast { position:fixed; left:50%; bottom:28px; transform:translate(-50%,30px); background:#1f2937; color:#fff; border-radius:12px; padding:11px 14px;
+           font-size:14px; display:flex; gap:14px; align-items:center; z-index:90; opacity:0; pointer-events:none; transition:all .25s; width:max-content; max-width:92vw; box-shadow:0 6px 24px rgba(0,0,0,.35); }
+  #toast.on { opacity:1; transform:translate(-50%,0); pointer-events:auto; }
+  #toast button { background:none; border:0; color:#93c5fd; font-weight:700; font-size:14px; padding:2px 4px; white-space:nowrap; }
+  .sp { -webkit-touch-callout:none; user-select:none; -webkit-user-select:none; } .sp img { -webkit-user-drag:none; pointer-events:none; }
+  .sp.dragging { opacity:.3; }
+  .sp.dropL { box-shadow:-5px 0 0 -1px var(--blue); } .sp.dropR { box-shadow:5px 0 0 -1px var(--blue); }
+  .spGhost { position:fixed; z-index:80; width:84px; aspect-ratio:.72; border-radius:8px; border:2px solid var(--blue); background:#fff center/contain no-repeat;
+             pointer-events:none; box-shadow:0 10px 30px rgba(0,0,0,.35); transform:translate(-50%,-60%) scale(1.08) rotate(-3deg); }
+  .qual { margin-top:8px; }
   /* QR scanner */
   #scanner { position:fixed; inset:0; background:#000; z-index:50; display:flex; flex-direction:column; }
   #scanner video { flex:1; width:100%; object-fit:cover; }
@@ -450,7 +460,7 @@
   <div id="scanScreen" class="hidden">
     <section class="card">
       <div class="pvHead"><h2 style="margin:0">📷 Scan → PDF</h2><button class="link" id="scanBack">← Wapas</button></div>
-      <p class="tip" id="scanTip">Page jodne ke liye neeche button dabaiye. Page par tap karke kone, rang aur ghumaav theek kijiye.</p>
+      <p class="tip" id="scanTip">Page par <b>tap</b> = kone / rang theek karein ya dobara photo lein. Page ko <b>dabakar rakhiye aur khiskaiye</b> = kram badlein.</p>
       <div class="scanGrid" id="scanGrid"></div>
       <button class="btn" id="liveBtn">📷 Scan karein (auto)</button>
       <p class="hint" style="text-align:center">Kaagaz ko camera ke saamne rakhiye. App kinaare pehchaan kar khud photo le legi.</p>
@@ -464,8 +474,14 @@
     <section class="card" id="scanActions">
       <label class="row" for="scanName">PDF ka naam</label>
       <input class="txt small" id="scanName" autocomplete="off">
+      <label class="row">PDF ki quality</label>
+      <div class="seg qual" id="scanQual"><button data-v="small">Chhoti<br><small>WhatsApp / form</small></button><button data-v="normal" class="on">Normal<br><small>print ke liye</small></button><button data-v="hd">HD<br><small>sabse saaf</small></button></div>
       <button class="btn" id="scanPrint" disabled>🖨 PDF banakar print karein</button>
-      <button class="btn light" id="scanShare" disabled>📤 PDF save / share karein</button>
+      <div class="two" style="margin-top:10px">
+        <button class="btn light" id="scanShare" disabled>📤 PDF bhejein<br><small>WhatsApp / Gmail / save</small></button>
+        <button class="btn light" id="scanShareImg" disabled>🖼 Photo bhejein<br><small>har page JPG</small></button>
+      </div>
+      <button class="link" id="scanClear" style="margin-top:12px">🗑 Sab pages hatakar naya scan</button>
     </section>
   </div>
 </main>
@@ -514,12 +530,11 @@
     <div class="edStrip" id="edStrip"></div>
     <div class="edBtns">
       <button id="edCropBtn" class="fOnly"><b>✂</b>Kone</button>
+      <button id="edRetake" class="fOnly"><b>📷</b>Dobara lo</button>
       <button id="edAuto" class="cOnly"><b>✨</b>Auto</button>
       <button id="edFull" class="cOnly"><b>⛶</b>Poora</button>
       <button id="edRotate"><b>⟳</b>Ghumaiye</button>
       <button id="edAll" class="fOnly"><b>⧉</b>Sab pages par</button>
-      <button id="edMoveL" class="fOnly"><b>⇠</b>Peeche</button>
-      <button id="edMoveR" class="fOnly"><b>⇢</b>Aage</button>
       <button id="edDel"><b>🗑</b>Hataiye</button>
     </div>
   </div>
@@ -532,6 +547,7 @@
   <div class="bottom"><button id="scanClose">✕ Band karein</button><div id="scanErr"></div></div>
 </div>
 <canvas id="scanCanvas" class="hidden"></canvas>
+<div id="toast"></div>
 <script src="/jsQR.min.js" defer></script>
 <script src="/docdetect.js" defer></script>
 <script src="/scan.js" defer></script>
@@ -896,7 +912,7 @@
   async function takeSharedFiles() {
     const q = new URLSearchParams(location.search).get("shared");
     if (!q) return;
-    history.replaceState(null, "", "/");
+    history.replaceState(history.state, "", "/");
     if (q !== "1") return msg($("msg"), "err", "Share ki gayi file nahi mili. Ek baar app kholkar dobara share kijiye.");
     try {
       const cache = await caches.open("pb-share");
@@ -1095,8 +1111,45 @@
   };
 
   // ---------- scan.js ke liye ----------
+  // ---------- chhota sandesh (toast) ----------
+  let toastT = 0;
+  function toast(text, action, fn, ms = 3500) {
+    const t = $("toast"); clearTimeout(toastT);
+    t.innerHTML = `<span>${esc(text)}</span>` + (action ? `<button>${esc(action)}</button>` : "");
+    if (action) t.querySelector("button").onclick = () => { t.classList.remove("on"); clearTimeout(toastT); fn && fn(); };
+    t.classList.add("on");
+    toastT = setTimeout(() => t.classList.remove("on"), ms);
+  }
+
+  // ---------- Phone ka Back button: app band na ho, sirf upar wali screen band ho ----------
+  let lastBack = 0;
+  const guard = () => { if (!history.state || history.state.pb !== "app") history.pushState({ pb: "app" }, ""); };
+  try { history.replaceState({ pb: "root" }, ""); } catch (e) {}   // suraksha pehle touch par lagti hai (Chrome ka niyam)
+  document.addEventListener("pointerdown", guard, true);   // Chrome ko ungli ka touch chahiye tabhi Back pakadta hai
+  window.addEventListener("popstate", () => {
+    const vis = id => $(id) && !$(id).classList.contains("hidden");
+    const click = id => { $(id).click(); return true; };
+    let done = false;
+    if (vis("editor")) done = click("edClose");
+    else if (vis("live")) done = click("lvClose");
+    else if (vis("scanner")) { stopScan(); done = true; }
+    else if (vis("scanScreen")) done = click("scanBack");
+    else if (vis("idScreen")) done = click("idBack");
+    else if (vis("ppScreen")) done = click("ppBack");
+    else if (vis("compressBox")) done = click("cCancel");
+    else if (vis("pairScreen") && laptops.length) { show("main"); done = true; }
+    if (!done) {
+      if (Date.now() - lastBack < 2200) { history.back(); return; }   // 2 baar jaldi dabaya: bahar jao
+      // pehli baar: sirf sandesh. Agla Back app band karega. 2 sec baad phir se suraksha laga do.
+      lastBack = Date.now(); toast("Band karne ke liye dobara Back dabaiye", null, null, 2200);
+      setTimeout(guard, 2300);
+      return;
+    }
+    history.pushState({ pb: "app" }, "");
+  });
+
   window.PB = {
-    $, api, msg, esc, cur, show, fmt, loadPdfJs,
+    $, api, msg, esc, cur, show, fmt, loadPdfJs, toast,
     get phoneName() { return phoneName; },
     getFiles: () => files,
     getPassword: f => pwMap.get(f) || "",
@@ -1130,7 +1183,7 @@
     // Phone ke camera app se QR scan karke aaye: #id=PB-XXXX-XXXX&pin=123456
     const fromQr = location.hash ? parsePairText(location.href) : null;
     if (fromQr) {
-      history.replaceState(null, "", location.pathname + location.search);
+      history.replaceState(history.state, "", location.pathname + location.search);
       $("pairId").value = fromQr.id; $("pairPin").value = fromQr.pin;
       show("pair");
       await doPair(fromQr.id, fromQr.pin);
