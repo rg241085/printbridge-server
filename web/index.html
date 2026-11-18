@@ -13,60 +13,77 @@
   :root { --blue:#1a56db; --bg:#f3f5f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --ok:#059669; --err:#dc2626; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
-  header { background:var(--blue); color:#fff; padding:18px 18px 46px; }
-  header h1 { margin:0; font-size:22px; display:flex; align-items:center; gap:10px; }
-  header h1 img { width:30px; height:30px; border-radius:8px; border:2px solid rgba(255,255,255,.5); }
+  header { background:linear-gradient(135deg,#1a56db,#2563eb); color:#fff; padding:14px 18px 40px; padding-top:max(14px, env(safe-area-inset-top)); }
+  header h1 { margin:0; font-size:19px; font-weight:700; display:flex; align-items:center; gap:9px; letter-spacing:.2px; }
+  header h1 img { width:26px; height:26px; border-radius:7px; border:1.5px solid rgba(255,255,255,.5); }
   header p { margin:4px 0 0; opacity:.85; font-size:14px; }
-  main { max-width:520px; margin:-34px auto 0; padding:0 14px 40px; }
-  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  main { max-width:520px; margin:-30px auto 0; padding:0 12px 32px; }
+  .card { background:var(--card); border-radius:16px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.04); }
   h2 { font-size:17px; margin:0 0 10px; }
+  .secHead { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin:0 0 6px; }
   .tip { font-size:13px; color:var(--muted); line-height:1.5; }
   .hidden { display:none !important; }
   input.txt { width:100%; padding:14px; font-size:20px; border:1px solid #d1d5db; border-radius:10px; text-align:center; letter-spacing:2px; font-family:ui-monospace,Consolas,monospace; text-transform:uppercase; }
-  label.row { display:block; font-size:14px; color:var(--muted); margin:12px 0 6px; }
-  select { width:100%; padding:12px; border-radius:10px; border:1px solid #d1d5db; font-size:16px; background:#fff; color:var(--text); }
-  .btn { width:100%; padding:16px; border:0; border-radius:14px; background:var(--blue); color:#fff; font-size:18px; font-weight:600; margin-top:16px; }
+  label.row { display:block; font-size:13px; color:var(--muted); margin:12px 0 5px; font-weight:500; }
+  select { width:100%; height:44px; padding:0 10px; border-radius:10px; border:1px solid #d1d5db; font-size:15px; background:#fff; color:var(--text); }
+  .btn { width:100%; padding:14px; border:0; border-radius:12px; background:var(--blue); color:#fff; font-size:16.5px; font-weight:600; margin-top:14px; }
+  .btn:active { filter:brightness(.92); }
   .btn:disabled { background:#9ca3af; }
-  .btn.light { background:#eef2ff; color:var(--blue); font-size:16px; padding:13px; }
+  .btn.light { background:#eef2ff; color:var(--blue); font-size:15px; padding:12px; }
   .link { background:none; border:0; color:var(--blue); font-size:14px; padding:6px 0; }
   .link.red { color:var(--err); }
   .laptop { display:flex; align-items:center; gap:12px; }
-  .laptop .icon { font-size:30px; }
-  .laptop .name { font-weight:600; }
-  .laptop .id { font-family:ui-monospace,Consolas,monospace; color:var(--muted); font-size:13px; }
-  .status { margin-left:auto; font-size:13px; display:flex; align-items:center; gap:6px; white-space:nowrap; }
-  .dot { width:10px; height:10px; border-radius:50%; background:#9ca3af; }
+  .laptop .icon { font-size:20px; width:38px; height:38px; border-radius:10px; background:#eef2ff; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .laptop .name { font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .laptop .id { font-family:ui-monospace,Consolas,monospace; color:var(--muted); font-size:12px; }
+  .status { margin-left:auto; font-size:12.5px; display:flex; align-items:center; gap:5px; white-space:nowrap; background:#f3f4f6; padding:4px 9px; border-radius:20px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:#9ca3af; }
   .dot.on { background:var(--ok); } .dot.off { background:var(--err); }
-  .lapActions { display:flex; justify-content:space-between; margin-top:8px; border-top:1px solid #f0f0f0; padding-top:4px; }
-  .pick { display:block; border:2px dashed #c7d2fe; border-radius:14px; padding:22px 12px; text-align:center; cursor:pointer; background:#f8faff; }
-  .pick b { display:block; font-size:17px; color:var(--blue); margin-top:6px; }
-  .pick small { color:var(--muted); }
+  .lapCard { padding:10px 8px 10px 12px; }
+  .more { border:0; background:none; font-size:20px; color:var(--muted); width:34px; height:34px; border-radius:50%; flex-shrink:0; }
+  .more:active { background:#f3f4f6; }
+  .lapMenu { border-top:1px solid #f0f0f0; margin-top:10px; padding-top:4px; display:flex; flex-direction:column; }
+  .lapMenu button { border:0; background:none; text-align:left; font-size:14.5px; padding:11px 6px; color:var(--text); border-radius:8px; }
+  .lapMenu button:active { background:#f3f4f6; } .lapMenu .red { color:var(--err); } .lapMenu select { margin:6px 0; }
+  .tiles { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; margin-bottom:12px; align-items:stretch; }
+  .tile { border:0; background:#fff; border-radius:14px; padding:10px 4px 9px; font-size:12px; font-weight:600; color:var(--text); line-height:1.25;
+          box-shadow:0 1px 3px rgba(16,24,40,.08); display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; height:100px; line-height:1.2; }
+  .tile i { font-style:normal; font-size:21px; width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; }
+  .tile:active { transform:scale(.97); }
+  .pick { display:flex; align-items:center; gap:12px; border:1.5px dashed #c7d2fe; border-radius:12px; padding:11px 12px; cursor:pointer; background:#f8faff; }
+  .pick .pi { font-size:22px; width:40px; height:40px; border-radius:10px; background:#e0e7ff; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .pick .pt { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .pick b { font-size:15.5px; color:var(--blue); }
+  .pick small { color:var(--muted); font-size:12px; }
+  .pick .pp { width:30px; height:30px; border-radius:50%; background:var(--blue); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+  .prow { display:flex; gap:10px; align-items:flex-end; }
   .pick input { display:none; }
   .shared { background:#ecfdf5; color:var(--ok); border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:10px; }
-  .files { list-style:none; padding:0; margin:12px 0 0; }
+  .files { list-style:none; padding:0; margin:10px 0 0; }
   .files li { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; background:var(--bg); border-radius:10px; margin-bottom:6px; font-size:14px; }
   .files li .n { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .files li .st { flex-shrink:0; color:var(--muted); font-size:13px; }
   .files li .x { flex-shrink:0; border:0; background:none; color:var(--muted); font-size:18px; padding:0 4px; }
   .stepper { display:flex; align-items:center; width:max-content; border:1px solid #d1d5db; border-radius:10px; overflow:hidden; }
-  .stepper button { width:48px; height:46px; border:0; background:#eef2ff; font-size:22px; color:var(--blue); }
-  .stepper span { width:56px; text-align:center; font-size:18px; font-weight:600; }
+  .stepper button { width:38px; height:42px; border:0; background:#eef2ff; font-size:20px; color:var(--blue); }
+  .stepper span { width:36px; text-align:center; font-size:16px; font-weight:600; }
   .bar { height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:14px; display:none; }
   .bar div { height:100%; width:0; background:var(--blue); transition:width .2s; }
-  .msg { margin-top:12px; padding:12px; border-radius:10px; font-size:15px; display:none; white-space:pre-line; }
+  .msg { margin-top:10px; padding:10px 12px; border-radius:10px; font-size:14px; display:none; white-space:pre-line; line-height:1.45; }
   .msg.ok { display:block; background:#ecfdf5; color:var(--ok); }
   .msg.err { display:block; background:#fef2f2; color:var(--err); }
   .msg.info { display:block; background:#eff6ff; color:var(--blue); }
   .hist { list-style:none; margin:0; padding:0; font-size:14px; }
-  .hist li { padding:7px 0; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; gap:8px; }
+  .hist li { padding:8px 0; border-bottom:1px solid #f3f4f6; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .hist li:last-child { border-bottom:0; }
   .hist li span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hist .t { color:var(--muted); flex-shrink:0; }
   .center { text-align:center; }
   input.pin { font-size:28px; letter-spacing:8px; }
   input.txt::placeholder { letter-spacing:2px; font-size:20px; color:#c0c4cc; }
-  details.opts { margin-top:16px; border:1px solid #e5e7eb; border-radius:12px; padding:0 14px; }
+  details.opts { margin-top:12px; border:1px solid #e5e7eb; border-radius:12px; padding:0 12px; }
   details.opts[open] { padding-bottom:14px; }
-  details.opts summary { list-style:none; cursor:pointer; padding:14px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:600; }
+  details.opts summary { list-style:none; cursor:pointer; padding:11px 0; font-size:14.5px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:600; }
   details.opts summary::-webkit-details-marker { display:none; }
   details.opts summary small { font-weight:400; color:var(--muted); font-size:12.5px; text-align:right; }
   details.opts summary::after { content:"▾"; color:var(--muted); margin-left:4px; }
@@ -90,14 +107,14 @@
   .ppStage canvas { display:block; width:100%; height:auto; cursor:grab; }
   .ppGuide { position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 0 3px #fff; }
   .ppFace { position:absolute; left:22%; right:22%; top:12%; bottom:22%; border:2px dashed rgba(255,255,255,.85); border-radius:50% 50% 45% 45%; }
-  #openPP { margin-top:10px; }
+
   .idSlot { margin-top:14px; }
   .idPrev { aspect-ratio:85.6/54; border:2px dashed #c7d2fe; border-radius:12px; background:#f8faff; display:flex; align-items:center;
             justify-content:center; overflow:hidden; color:var(--muted); font-size:15px; cursor:pointer; }
   .idPrev img { width:100%; height:100%; object-fit:fill; }
   .idPrev.has { border-style:solid; border-color:var(--blue); }
   #idScreen .two .btn { margin-top:8px; }
-  #openId { margin-top:10px; }
+
   .pwBox { margin-top:8px; background:#fffbeb; border-radius:10px; padding:10px; font-size:14px; }
   .pwBox p { margin:0 0 6px; }
   .pwRow { display:flex; gap:8px; }
@@ -220,7 +237,36 @@
   .sp.dropL { box-shadow:-5px 0 0 -1px var(--blue); } .sp.dropR { box-shadow:5px 0 0 -1px var(--blue); }
   .spGhost { position:fixed; z-index:80; width:84px; aspect-ratio:.72; border-radius:8px; border:2px solid var(--blue); background:#fff center/contain no-repeat;
              pointer-events:none; box-shadow:0 10px 30px rgba(0,0,0,.35); transform:translate(-50%,-60%) scale(1.08) rotate(-3deg); }
-  .qual { margin-top:8px; }
+  .qual { margin-top:0; }
+  .pvHead b { font-size:14px; } .pvLinks { display:flex; gap:12px; white-space:nowrap; } .pvLinks .link { padding:2px 0; font-size:13.5px; }
+  .preview { padding:10px; } .pvGrid { grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:8px; max-height:330px; }
+  input.txt.small { text-align:left; font-family:inherit; letter-spacing:0; font-size:15.5px; }
+  .idPrev { width:min(100%, 270px); margin:0 auto; }
+  .idSlot .two { margin-top:0; } .idSlot .two .btn { padding:9px; font-size:14px; }
+  #idScreen .idSlot { margin-top:10px; }
+  #go { position:sticky; bottom:10px; z-index:5; box-shadow:0 6px 18px rgba(26,86,219,.35); }
+  #go:disabled { box-shadow:none; }
+  .slim { padding:10px 12px; }
+  .inst { display:flex; align-items:center; gap:10px; font-size:14px; }
+  .inst span { flex:1; display:flex; flex-direction:column; } .inst small { color:var(--muted); font-size:12px; }
+  .inst .btn { width:auto; margin:0; padding:9px 16px; font-size:14px; }
+  details.help { margin:2px 4px 0; font-size:13px; color:var(--muted); }
+  details.help summary { cursor:pointer; padding:8px 4px; list-style:none; font-weight:600; }
+  details.help summary::-webkit-details-marker { display:none; }
+  details.help p { margin:4px 4px 10px; line-height:1.5; }
+  .scrHead { display:flex; align-items:center; gap:6px; margin:-4px 0 8px -6px; }
+  .scrHead h2 { margin:0; flex:1; font-size:17px; }
+  .scrHead .back { border:0; background:none; font-size:22px; width:38px; height:38px; border-radius:50%; color:var(--text); }
+  .scrHead .back:active { background:#f3f4f6; }
+  .scrHead .cnt { font-size:12.5px; background:#eef2ff; color:var(--blue); padding:3px 10px; border-radius:20px; font-weight:600; }
+  .scrHead .cnt:empty { display:none; }
+  .mini { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; margin-top:8px; }
+  .mini > * { border:0; background:#f3f4f6; border-radius:12px; padding:9px 4px; font-size:12.5px; color:var(--text); font-weight:500;
+              display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; text-align:center; }
+  .mini i { font-style:normal; font-size:19px; }
+  .mini input { display:none; }
+  .empty { border:1.5px dashed #d1d5db; border-radius:12px; padding:18px 10px; text-align:center; color:var(--muted); font-size:13.5px; grid-column:1/-1; }
+  .empty b { display:block; font-size:28px; margin-bottom:4px; }
   /* QR scanner */
   #scanner { position:fixed; inset:0; background:#000; z-index:50; display:flex; flex-direction:column; }
   #scanner video { flex:1; width:100%; object-fit:cover; }
@@ -236,7 +282,6 @@
 <body>
 <header>
   <h1><img src="/icons/icon-192.png" alt="">PrintBridge</h1>
-  <p>Phone se seedha laptop ke printer par</p>
 </header>
 
 <main>
@@ -262,42 +307,50 @@
 
   <!-- ===== Print screen ===== -->
   <div id="mainScreen" class="hidden">
-    <section class="card">
+    <section class="card lapCard">
       <div class="laptop">
         <div class="icon">💻</div>
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
           <div class="name" id="lapName">Laptop</div>
           <div class="id" id="lapId"></div>
         </div>
         <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">Check…</span></div>
+        <button class="more" id="lapMore" aria-label="aur">⋮</button>
       </div>
-      <select id="lapSelect" class="hidden" style="margin-top:10px"></select>
-      <div class="lapActions">
-        <button class="link" id="addLaptop">＋ Doosra laptop jodiye</button>
-        <button class="link" id="nameBtn">✏️ <span id="nameLbl"></span></button>
-        <button class="link red" id="removeLaptop">Hataiye</button>
+      <div class="lapMenu hidden" id="lapMenu">
+        <select id="lapSelect" class="hidden"></select>
+        <button id="addLaptop">＋ Doosra laptop jodiye</button>
+        <button id="nameBtn">✏️ Phone ka naam: <b id="nameLbl"></b></button>
+        <button id="removeLaptop" class="red">🗑 Ye laptop hataiye</button>
       </div>
     </section>
+
+    <div class="tiles">
+      <button class="tile" id="openScan"><i style="background:#e0e7ff">📷</i>Scan<br>PDF</button>
+      <button class="tile" id="openId"><i style="background:#dcfce7">🪪</i>ID card<br>print</button>
+      <button class="tile" id="openPP"><i style="background:#fef3c7">🧑</i>Passport<br>photo</button>
+      <button class="tile hidden" id="openLaptopScan"><i style="background:#fce7f3">🖨</i>Laptop<br>scanner</button>
+    </div>
 
     <section class="card">
       <div class="shared hidden" id="sharedNote">📲 Share ki gayi files aa gayi hain. Bas "Print karein" dabaiye.</div>
       <label class="pick">
-        <div style="font-size:34px">📄</div>
-        <b>File chuniye</b>
-        <small>PDF, photo, Word, Excel • ek saath kai files</small>
+        <span class="pi">📄</span>
+        <span class="pt"><b id="pickTitle">File chuniye</b><small>PDF, photo, Word, Excel</small></span>
+        <span class="pp">＋</span>
         <input type="file" id="file" multiple accept=".pdf,image/*,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt">
       </label>
       <ul class="files" id="fileList"></ul>
       <div class="preview hidden" id="preview">
         <div class="pvHead"><b id="pvTitle">Preview</b>
-          <span><button class="link" id="pvAll">Sab chuniye</button> · <button class="link" id="pvNone">Koi nahi</button></span></div>
+          <span class="pvLinks"><button class="link" id="pvAll">Sab</button><button class="link" id="pvNone">Koi nahi</button></span></div>
         <div class="pwBox hidden" id="pwBox">
           <p id="pwMsg">🔒 Ye PDF password wali hai. Password daaliye:</p>
           <div class="pwRow"><input class="txt small" id="pwIn" type="password" placeholder="PDF ka password" autocomplete="off"><button class="btn" id="pwOk">Kholiye</button></div>
           <p class="hint">Password sirf is print ke liye laptop tak jaata hai, kahin save nahi hota. (Aadhaar PDF mein aksar naam ke pehle 4 akshar CAPITAL mein aur janam ka saal, jaise RAVI1990.)</p>
         </div>
         <div class="pvGrid" id="pvGrid"></div>
-        <p class="hint">Page par tap karke chuniye ya hataiye. Sirf ✔ wale page print honge.</p>
+        <p class="hint">Tap karke page chuniye / hataiye. Sirf ✔ wale print honge.</p>
       </div>
       <div class="tools hidden" id="pdfTools">
         <button class="btn light" id="mergeBtn">🔗 Sab ko ek PDF mein jodiye</button>
@@ -314,16 +367,21 @@
         <button class="btn light" id="toolShare">📤 Is PDF ko save / share karein</button>
       </div>
 
-      <label class="row" for="printer">Printer</label>
-      <select id="printer"><option value="">—</option></select>
-
-      <label class="row">Copies</label>
-      <div class="stepper">
-        <button type="button" id="minus">−</button>
-        <span id="copies">1</span>
-        <button type="button" id="plus">+</button>
-      </div>
-
+      <div id="printArea" class="hidden">
+        <div class="prow">
+          <div style="flex:1;min-width:0">
+            <label class="row" for="printer">Printer</label>
+            <select id="printer"><option value="">—</option></select>
+          </div>
+          <div>
+            <label class="row">Copies</label>
+            <div class="stepper">
+              <button type="button" id="minus">−</button>
+              <span id="copies">1</span>
+              <button type="button" id="plus">+</button>
+            </div>
+          </div>
+        </div>
       <details class="opts" id="optsBox">
         <summary><span>⚙️ Print settings</span><small id="optsSummary"></small></summary>
 
@@ -356,55 +414,44 @@
         <div id="duplexRow" class="hidden">
           <label class="row">Dono taraf print (printer khud palatega)</label>
           <div class="seg" data-opt="duplex">
-            <button data-v="off">Nahi</button><button data-v="long">Haan (kitaab jaisa)</button><button data-v="short">Haan (upar palte)</button>
+            <button data-v="off">Nahi</button><button data-v="long">Kitaab jaisa</button><button data-v="short">Upar palte</button>
           </div>
         </div>
 
         <label class="check"><input type="checkbox" id="reverse"> Ulta kram (aakhri page pehle)</label>
         <p class="hint">Ye settings PDF, photo, aur (laptop par MS Office ho to) Word/Excel/PowerPoint par chalti hain.</p>
       </details>
-
-      <button class="btn" id="go" disabled>Print karein</button>
+        <button class="btn" id="go" disabled>🖨 Print karein</button>
+      </div>
       <div class="bar" id="bar"><div></div></div>
       <button class="btn danger hidden" id="cancelBtn">⛔ Print cancel karein</button>
       <div class="msg" id="msg"></div>
     </section>
 
-    <section class="card" id="scanCard">
-      <h2>📷 Scan karke PDF banaiye</h2>
-      <p class="tip">Document ki photo lijiye, kone theek kijiye, aur PDF banakar print ya share kijiye.</p>
-      <div class="two">
-        <button class="btn light" id="openScan">📷 Camera se scan</button>
-        <button class="btn light hidden" id="openLaptopScan">🖨 Laptop scanner se</button>
-      </div>
-      <button class="btn light" id="openId">🪪 ID card print (Aadhaar / PAN / License)</button>
-      <button class="btn light" id="openPP">🧑 Passport size photo</button>
-      <p class="hint" style="margin-top:12px">📶 Internet band hai? Laptop window mein <b>"Bina internet"</b> wala QR scan kijiye (phone aur laptop ek WiFi par hon).</p>
+    <section class="card slim hidden" id="installCard">
+      <div class="inst"><span>📲 <b>App install karein</b><small>WhatsApp/Gallery se Share → seedha print</small></span>
+        <button class="btn" id="installBtn">Install</button></div>
     </section>
 
-    <section class="card hidden" id="installCard">
-      <h2>📲 App install kijiye</h2>
-      <p class="tip">Install karne ke baad WhatsApp, Gallery ya File Manager mein kisi bhi document par
-        <b>Share → PrintBridge</b> dabaiye. Seedha yahan aa jaayega.</p>
-      <button class="btn light" id="installBtn">Install karein</button>
-    </section>
-
-    <section class="card">
-      <h2>Haal ki prints</h2>
+    <section class="card" id="histCard">
+      <div class="secHead">Haal ki prints</div>
       <ul class="hist" id="hist"></ul>
-      <p class="tip" id="histEmpty">Abhi tak kuch print nahi hua.</p>
+      <p class="tip hidden" id="histEmpty">Abhi tak kuch print nahi hua.</p>
     </section>
 
-    <section class="card tip" id="shareHelp">
-      💡 <b>WhatsApp se seedha print:</b> document par lamba dabaiye → <b>Share</b> (↗) → <b>PrintBridge</b>.
-      Iske liye app install honi chahiye (Chrome menu ⋮ → <b>"Install app"</b> / "Add to Home screen").
-    </section>
+    <details class="help">
+      <summary>💡 Madad aur tips</summary>
+      <p id="shareHelp">📲 <b>WhatsApp se seedha print:</b> document par lamba dabaiye → <b>Share</b> → <b>PrintBridge</b>. Iske liye app install honi chahiye (Chrome menu ⋮ → "Install app").</p>
+      <p>📶 <b>Internet band hai?</b> Laptop window mein "Bina internet" wala QR scan kijiye (phone aur laptop ek WiFi par hon).</p>
+      <p>🔒 <b>Password wali PDF</b> (jaise Aadhaar): file chunne par password poocha jaayega.</p>
+    </details>
   </div>
+
   <!-- ===== Passport photo screen ===== -->
   <div id="ppScreen" class="hidden">
     <section class="card">
-      <div class="pvHead"><h2 style="margin:0">🧑 Passport size photo</h2><button class="link" id="ppBack">← Wapas</button></div>
-      <p class="tip">Saamne se li gayi photo chuniye (halki deewar ke aage). Photo ko khiskakar aur bada-chhota karke chehra dabbe ke beech mein laaiye.</p>
+      <div class="scrHead"><button class="back" id="ppBack" aria-label="wapas">←</button><h2>Passport size photo</h2></div>
+      <p class="tip">Saamne se li gayi photo chuniye (halki deewar ke aage). Phir chehra dabbe ke beech mein laaiye.</p>
       <div class="two">
         <label class="btn light filebtn">📷 Camera<input type="file" id="ppCam" accept="image/*" capture="user"></label>
         <label class="btn light filebtn">🖼 Gallery<input type="file" id="ppGal" accept="image/*"></label>
@@ -431,8 +478,8 @@
   <!-- ===== ID card screen ===== -->
   <div id="idScreen" class="hidden">
     <section class="card">
-      <div class="pvHead"><h2 style="margin:0">🪪 ID card print</h2><button class="link" id="idBack">← Wapas</button></div>
-      <p class="tip">Aadhaar, PAN, License, Voter ID… dono taraf ki photo lijiye. Card A4 kaagaz par <b>asli size (85.6 × 54 mm)</b> mein, katne ki line ke saath chhapega.</p>
+      <div class="scrHead"><button class="back" id="idBack" aria-label="wapas">←</button><h2>ID card print</h2></div>
+      <p class="tip">Aadhaar, PAN, License… dono taraf ki photo lijiye. A4 par <b>asli size</b> mein, katne ki line ke saath chhapega.</p>
       <div class="idSlot">
         <div class="idPrev" id="idPrev0" data-side="0"><span>Aage ka hissa</span></div>
         <div class="two">
@@ -447,7 +494,6 @@
           <label class="btn light filebtn">🖼 Gallery<input type="file" accept="image/*" data-side="1"></label>
         </div>
       </div>
-      <p class="hint">Photo ke baad card ke chaaron kone theek kijiye. Card par tap karke dobara theek kar sakte hain.</p>
       <label class="row">Ek kaagaz par kitne set</label>
       <div class="seg" id="idSets"><button data-v="1" class="on">1 set</button><button data-v="2">2 set</button><button data-v="4">4 set</button></div>
       <button class="btn" id="idPrint" disabled>🖨 ID card print karein</button>
@@ -459,29 +505,30 @@
   <!-- ===== Scan screen ===== -->
   <div id="scanScreen" class="hidden">
     <section class="card">
-      <div class="pvHead"><h2 style="margin:0">📷 Scan → PDF</h2><button class="link" id="scanBack">← Wapas</button></div>
-      <p class="tip" id="scanTip">Page par <b>tap</b> = kone / rang theek karein ya dobara photo lein. Page ko <b>dabakar rakhiye aur khiskaiye</b> = kram badlein.</p>
+      <div class="scrHead"><button class="back" id="scanBack" aria-label="wapas">←</button><h2>Scan → PDF</h2><span class="cnt" id="scanCount"></span></div>
       <div class="scanGrid" id="scanGrid"></div>
-      <button class="btn" id="liveBtn">📷 Scan karein (auto)</button>
-      <p class="hint" style="text-align:center">Kaagaz ko camera ke saamne rakhiye. App kinaare pehchaan kar khud photo le legi.</p>
-      <div class="two" style="margin-top:4px">
-        <label class="btn light filebtn">📸 Camera app<input type="file" id="camIn" accept="image/*" capture="environment"></label>
-        <label class="btn light filebtn">🖼 Gallery<input type="file" id="galIn" accept="image/*" multiple></label>
+      <p class="hint center" id="scanTip">Tap = kone / rang / dobara photo • Dabakar khiskaiye = kram badlein</p>
+      <button class="btn" id="liveBtn">📷 Scan karein</button>
+      <div class="mini">
+        <label class="filebtn"><i>📸</i>Camera app<input type="file" id="camIn" accept="image/*" capture="environment"></label>
+        <label class="filebtn"><i>🖼</i>Gallery<input type="file" id="galIn" accept="image/*" multiple></label>
+        <button class="hidden" id="lapScanBtn"><i>🖨</i>Laptop scanner</button>
       </div>
-      <button class="btn light hidden" id="lapScanBtn">🖨 Laptop ke scanner se page jodiye</button>
       <div class="msg" id="scanMsg"></div>
     </section>
-    <section class="card" id="scanActions">
-      <label class="row" for="scanName">PDF ka naam</label>
-      <input class="txt small" id="scanName" autocomplete="off">
-      <label class="row">PDF ki quality</label>
-      <div class="seg qual" id="scanQual"><button data-v="small">Chhoti<br><small>WhatsApp / form</small></button><button data-v="normal" class="on">Normal<br><small>print ke liye</small></button><button data-v="hd">HD<br><small>sabse saaf</small></button></div>
-      <button class="btn" id="scanPrint" disabled>🖨 PDF banakar print karein</button>
-      <div class="two" style="margin-top:10px">
-        <button class="btn light" id="scanShare" disabled>📤 PDF bhejein<br><small>WhatsApp / Gmail / save</small></button>
-        <button class="btn light" id="scanShareImg" disabled>🖼 Photo bhejein<br><small>har page JPG</small></button>
+    <section class="card hidden" id="scanActions">
+      <div class="prow">
+        <div style="flex:1;min-width:0"><label class="row" for="scanName">PDF ka naam</label><input class="txt small" id="scanName" autocomplete="off"></div>
       </div>
-      <button class="link" id="scanClear" style="margin-top:12px">🗑 Sab pages hatakar naya scan</button>
+      <label class="row">Quality</label>
+      <div class="seg qual" id="scanQual"><button data-v="small">Chhoti</button><button data-v="normal" class="on">Normal</button><button data-v="hd">HD</button></div>
+      <p class="hint" id="qualHint"></p>
+      <button class="btn" id="scanPrint" disabled>🖨 Print karein</button>
+      <div class="two" style="margin-top:8px">
+        <button class="btn light" id="scanShare" disabled>📤 PDF bhejein</button>
+        <button class="btn light" id="scanShareImg" disabled>🖼 Photo bhejein</button>
+      </div>
+      <button class="link red" id="scanClear" style="margin-top:8px;width:100%">🗑 Sab hatakar naya scan</button>
     </section>
   </div>
 </main>
@@ -569,7 +616,7 @@
     let reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (!hadController || reloaded) return;
-      const idle = () => !files.length && !pairing && !scanStream;
+      const idle = () => !files.length && !pairing && !scanStream && !sharing && !location.search.includes("shared=");
       const tryReload = () => { if (idle()) { reloaded = true; location.reload(); } else setTimeout(tryReload, 5000); };
       tryReload();
     });
@@ -749,7 +796,10 @@
     sel.innerHTML = laptops.map(x => `<option value="${esc(x.id)}" ${x.id === l.id ? "selected" : ""}>${esc(x.name)} (${esc(x.id)})</option>`).join("");
     refreshStatus(true);
   }
-  $("lapSelect").onchange = e => { current = e.target.value; save(K_CUR, current); renderLaptop(); };
+  $("lapSelect").onchange = e => { current = e.target.value; save(K_CUR, current); $("lapMenu").classList.add("hidden"); renderLaptop(); };
+  $("lapMore").onclick = e => { e.stopPropagation(); $("lapMenu").classList.toggle("hidden"); };
+  document.addEventListener("click", e => { if (!e.target.closest(".lapCard")) $("lapMenu").classList.add("hidden"); });
+  ["addLaptop", "nameBtn", "removeLaptop"].forEach(id => $(id).addEventListener("click", () => $("lapMenu").classList.add("hidden")));
 
   let online = false;
   async function refreshStatus(loadPrinters) {
@@ -788,7 +838,33 @@
   // ---------- files ----------
   let files = [];
   const fmt = b => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
-  function addFiles(list) {
+  // Kai apps share karte waqt naam bina ".pdf" ke bhejti hain (jaise "document" ya "12345").
+  // File ke shuru ke bytes dekh kar asli type pehchaan lo aur sahi naam laga do.
+  const MIME_EXT = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+    "image/bmp": "bmp", "text/plain": "txt", "application/msword": "doc", "application/rtf": "rtf", "text/rtf": "rtf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx", "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx", "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx", "application/vnd.oasis.opendocument.text": "odt" };
+  async function fixName(f) {
+    const ext = (f.name.includes(".") ? f.name.split(".").pop() : "").toLowerCase();
+    if (ALLOWED.includes(ext)) return f;
+    let e2 = MIME_EXT[(f.type || "").toLowerCase()];
+    try {
+      const b = new Uint8Array(await f.slice(0, 1024).arrayBuffer()), at = (s, o = 0) => [...s].every((c, i) => b[o + i] === c.charCodeAt(0));
+      const pdfAt = new TextDecoder("latin1").decode(b).indexOf("%PDF");
+      if (pdfAt >= 0) e2 = "pdf";
+      else if (b[0] === 0xFF && b[1] === 0xD8) e2 = "jpg";
+      else if (b[0] === 0x89 && at("PNG", 1)) e2 = "png";
+      else if (at("GIF8")) e2 = "gif";
+      else if (at("RIFF") && at("WEBP", 8)) e2 = "webp";
+      else if (at("BM")) e2 = "bmp";
+    } catch (err) {}
+    if (!e2) return f;
+    const base = (f.name || "file").replace(/\.[^.]*$/, "") || "file";
+    return new File([f], `${base}.${e2}`, { type: f.type || (e2 === "pdf" ? "application/pdf" : "") });
+  }
+  async function addFiles(list) {
+    list = await Promise.all([...list].map(fixName));
     const bad = [];
     for (const f of list) {
       if (ALLOWED.includes((f.name.split(".").pop() || "").toLowerCase())) files.push(f); else bad.push(f.name);
@@ -800,7 +876,9 @@
     $("fileList").innerHTML = files.map((f, i) =>
       `<li>${i > 0 ? `<button class="up" data-up="${i}" aria-label="upar">↑</button>` : ""}<span class="n">${esc(f.name)}</span><span class="st" id="st${i}">${fmt(f.size)}</span><button class="x" data-i="${i}" aria-label="hatao">×</button></li>`).join("");
     $("go").disabled = !files.length;
-    $("go").textContent = files.length > 1 ? `${files.length} files print karein` : "Print karein";
+    $("go").textContent = files.length > 1 ? `🖨 ${files.length} files print karein` : "🖨 Print karein";
+    $("printArea").classList.toggle("hidden", !files.length);   // file ke bina settings ka kya kaam
+    $("pickTitle").textContent = files.length ? "Aur file jodiye" : "File chuniye";
     if (!files.length) $("sharedNote").classList.add("hidden");
     renderPreview();
     if (window.PBTools) window.PBTools.update();
@@ -883,7 +961,7 @@
     if (!pv.n) return;
     const sel = selFromOpts(pv.n);
     $("pvGrid").querySelectorAll(".pv").forEach(el => el.classList.toggle("on", sel.has(+el.dataset.p)));
-    $("pvTitle").textContent = `Preview: ${sel.size} / ${pv.n} page chune`;
+    $("pvTitle").textContent = `${sel.size} / ${pv.n} page chune`;
   }
   $("pvGrid").onclick = e => {
     const el = e.target.closest(".pv"); if (!el || !pv.n) return;
@@ -909,25 +987,47 @@
   $("file").addEventListener("change", e => { $("msg").className = "msg"; addFiles([...e.target.files]); e.target.value = ""; });
 
   // WhatsApp/Gallery se Share ki gayi files (service worker ne cache me rakhi hain)
+  let sharing = false;
   async function takeSharedFiles() {
-    const q = new URLSearchParams(location.search).get("shared");
+    const params = new URLSearchParams(location.search), q = params.get("shared");
     if (!q) return;
-    history.replaceState(history.state, "", "/");
-    if (q !== "1") return msg($("msg"), "err", "Share ki gayi file nahi mili. Ek baar app kholkar dobara share kijiye.");
+    sharing = true;
     try {
-      const cache = await caches.open("pb-share");
-      const metaRes = await cache.match("/__shared/meta");
-      const keys = metaRes ? await metaRes.json() : [];
-      const got = [];
-      for (const k of keys) {
-        const r = await cache.match(k); if (!r) continue;
-        const blob = await r.blob();
-        got.push(new File([blob], decodeURIComponent(r.headers.get("X-Name") || "file"), { type: blob.type }));
-        await cache.delete(k);
+      let got = [], extra = null;
+      if (q === "srv") {   // service worker taiyaar nahi tha: server ne file sambhaal li
+        const t = params.get("t");
+        const list = await (await fetch(`/api/shared/${encodeURIComponent(t)}`)).json();
+        for (const [i, it] of (list.files || []).entries()) {
+          const r = await fetch(`/api/shared/${encodeURIComponent(t)}/${i}`);
+          if (r.ok) got.push(new File([await r.blob()], it.name || `file${i}`, { type: it.type || "" }));
+        }
+        extra = list.text || null;
+      } else if (q === "1") {
+        const cache = await caches.open("pb-share");
+        const metaRes = await cache.match("/__shared/meta");
+        const meta = metaRes ? await metaRes.json() : [];
+        const keys = Array.isArray(meta) ? meta : (meta.keys || []);
+        extra = Array.isArray(meta) ? null : (meta.text || null);
+        for (const k of keys) {
+          const r = await cache.match(k); if (!r) continue;
+          got.push(new File([await r.blob()], decodeURIComponent(r.headers.get("X-Name") || "file"), { type: r.headers.get("Content-Type") || "" }));
+        }
+        if (got.length || keys.length === 0) { for (const k of keys) await cache.delete(k); await cache.delete("/__shared/meta"); }
       }
-      await cache.delete("/__shared/meta");
-      if (got.length) { addFiles(got); $("sharedNote").classList.remove("hidden"); }
-    } catch (e) { msg($("msg"), "err", "Share ki gayi file padh nahi paaye"); }
+      history.replaceState(history.state, "", "/");
+      if (got.length) {
+        show("main"); await addFiles(got);
+        if (files.length) $("sharedNote").classList.remove("hidden");
+      } else if (extra) {
+        msg($("msg"), "err", "Is app ne file nahi, sirf link/text bheja hai:\n" + extra.slice(0, 150) +
+          "\n\nFile ko pehle phone mein Download kijiye, phir Files app se Share → PrintBridge kijiye (ya yahan \"File chuniye\" dabaiye).");
+      } else {
+        msg($("msg"), "err", "Share ki gayi file nahi mili. Ek baar dobara share kijiye, ya \"File chuniye\" se chuniye.");
+      }
+    } catch (e) {
+      history.replaceState(history.state, "", "/");
+      msg($("msg"), "err", "Share ki gayi file padh nahi paaye. Dobara share kijiye ya \"File chuniye\" se chuniye.");
+    } finally { sharing = false; }
   }
 
   // ---------- print settings ----------
@@ -1096,7 +1196,7 @@
   }
   function renderHist() {
     const h = load(K_HIST, []);
-    $("histEmpty").classList.toggle("hidden", h.length > 0);
+    $("histCard").classList.toggle("hidden", !h.length);
     $("hist").innerHTML = h.map((x, i) => `<li><div class="left"><span>📄 ${esc(x.name)} ×${x.n}</span><span class="t">${new Date(x.t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></div>${x.fid ? `<button class="again" data-h="${i}">🔁 Dobara</button>` : ""}</li>`).join("");
   }
   $("hist").onclick = async e => {
@@ -1137,6 +1237,7 @@
     else if (vis("idScreen")) done = click("idBack");
     else if (vis("ppScreen")) done = click("ppBack");
     else if (vis("compressBox")) done = click("cCancel");
+    else if (vis("lapMenu")) { $("lapMenu").classList.add("hidden"); done = true; }
     else if (vis("pairScreen") && laptops.length) { show("main"); done = true; }
     if (!done) {
       if (Date.now() - lastBack < 2200) { history.back(); return; }   // 2 baar jaldi dabaya: bahar jao

@@ -512,10 +512,52 @@ async def site_qr(request: Request):
 
 
 # ---------------------------------------------------------------- phone app (PWA)
+SHARED = {}   # token -> {"t": time, "files": [(name, type, bytes)], "text": str}
+SHARE_MAX = 60 * 1024 * 1024
+
+
 @app.post("/share")
-async def share_fallback():
-    # Normally service worker ise pakad leta hai. Agar SW active nahi tha to app khol do.
-    return RedirectResponse("/?shared=retry", status_code=303)
+async def share_fallback(request: Request):
+    # Normally phone ka service worker ise pakad leta hai. Agar wo taiyaar nahi tha,
+    # to server file ko 10 minute ke liye rakh leta hai aur app use le leti hai.
+    now = time.time()
+    for k in [k for k, v in SHARED.items() if now - v["t"] > 600]:
+        SHARED.pop(k, None)
+    files, text, total = [], [], 0
+    try:
+        form = await request.form()
+        for key, val in form.multi_items():
+            if hasattr(val, "read"):
+                data = await val.read()
+                total += len(data)
+                if data and total <= SHARE_MAX:
+                    files.append(((val.filename or "file")[:150], val.content_type or "", data))
+            elif key in ("title", "text", "url") and str(val).strip():
+                text.append(str(val).strip()[:500])
+    except Exception:
+        return RedirectResponse("/?shared=error", status_code=303)
+    tok = secrets.token_urlsafe(18)
+    SHARED[tok] = {"t": now, "files": files, "text": " ".join(text)}
+    return RedirectResponse(f"/?shared=srv&t={tok}", status_code=303)
+
+
+@app.get("/api/shared/{tok}")
+async def shared_list(tok: str):
+    it = SHARED.get(tok)
+    if not it:
+        raise HTTPException(404, "Share purana ho gaya")
+    return {"files": [{"name": n, "type": t, "size": len(d)} for n, t, d in it["files"]], "text": it["text"]}
+
+
+@app.get("/api/shared/{tok}/{i}")
+async def shared_file(tok: str, i: int):
+    it = SHARED.get(tok)
+    if not it or not (0 <= i < len(it["files"])):
+        raise HTTPException(404, "File nahi mili")
+    n, t, d = it["files"][i]
+    if i == len(it["files"]) - 1:
+        SHARED.pop(tok, None)   # aakhri file le li: server se mita do
+    return Response(d, media_type=t or "application/octet-stream")
 
 
 @app.middleware("http")

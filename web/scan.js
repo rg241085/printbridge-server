@@ -31,11 +31,15 @@
     $("scanGrid").innerHTML = pages.length ? pages.map((p, i) =>
       `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt="" draggable="false"><span class="no">${i + 1}</span><span class="fl">${FNAMES[p.filter] || ""}</span></div>`).join("")
       + `<div class="sp add" id="spAdd"><b>＋</b><span>Aur page</span></div>`
-      : `<p class="hint" style="grid-column:1/-1">Abhi koi page nahi. Neeche "Scan karein" dabaiye.</p>`;
+      : `<div class="empty"><b>📄</b>Abhi koi page nahi.<br>"Scan karein" dabaiye, app kinaare khud pehchaan kar photo legi.</div>`;
+    $("scanActions").classList.toggle("hidden", !pages.length);
+    $("scanCount").textContent = pages.length ? `${pages.length} page` : "";
+    $("scanTip").classList.toggle("hidden", pages.length < 1);
+    $("liveBtn").textContent = pages.length ? "📷 Aur page scan karein" : "📷 Scan karein";
     $("scanPrint").disabled = $("scanShare").disabled = $("scanShareImg").disabled = !pages.length;
     $("scanClear").classList.toggle("hidden", !pages.length);
     saveSession();
-    $("scanPrint").textContent = pages.length > 1 ? `🖨 ${pages.length} page ki PDF banakar print karein` : "🖨 PDF banakar print karein";
+    $("scanPrint").textContent = pages.length > 1 ? `🖨 ${pages.length} page print karein` : "🖨 Print karein";
   }
   $("scanGrid").onclick = e => {
     if (gd && gd.justDragged) { gd = null; return; }
@@ -945,7 +949,8 @@
 
   let quality = "normal";
   try { quality = localStorage.getItem("pb.scanQual") || "normal"; } catch (e) {}
-  const syncQual = () => document.querySelectorAll("#scanQual button").forEach(b => b.classList.toggle("on", b.dataset.v === quality));
+  const QH = { small: "Kam KB — WhatsApp aur online form ke liye", normal: "Print ke liye sahi", hd: "Sabse saaf, file thodi badi" };
+  const syncQual = () => { document.querySelectorAll("#scanQual button").forEach(b => b.classList.toggle("on", b.dataset.v === quality)); $("qualHint").textContent = QH[quality] || ""; };
   syncQual();
   $("scanQual").onclick = e => { const b = e.target.closest("button"); if (!b) return; quality = b.dataset.v; syncQual(); try { localStorage.setItem("pb.scanQual", quality); } catch (x) {} };
   // quality ke hisaab se page ki photo: chhoti = kam pixel/kam KB, HD = zyada pixel

@@ -1,7 +1,7 @@
 // PrintBridge service worker
 // 1) App ko install hone laayak banata hai (offline me bhi khul jaaye)
 // 2) WhatsApp/Gallery ke "Share" se aayi files ko pakad kar app ko deta hai
-const APP_CACHE = "pb-app-v14";
+const APP_CACHE = "pb-app-v16";
 const SHARE_CACHE = "pb-share";
 const SHELL = ["/", "/jsQR.min.js", "/docdetect.js", "/detworker.js", "/scan.js", "/tools.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
@@ -23,6 +23,7 @@ self.addEventListener("fetch", e => {
 
   // Share target: files ko cache me rakho, phir app kholo
   if (e.request.method === "POST" && url.pathname === "/share") {
+    const backup = e.request.clone();   // kuch bigde to server ko bhej denge
     e.respondWith((async () => {
       try {
         const form = await e.request.formData();
@@ -34,10 +35,12 @@ self.addEventListener("fetch", e => {
         await Promise.all(files.map((f, i) => cache.put(keys[i], new Response(f, {
           headers: { "Content-Type": f.type || "application/octet-stream", "X-Name": encodeURIComponent(f.name || `file${i}`) }
         }))));
-        await cache.put("/__shared/meta", new Response(JSON.stringify(keys)));
+        // kuch apps file ki jagah sirf link/text bhejti hain: use bhi rakh lo taaki app samjha sake
+        const text = ["title", "text", "url"].map(k => form.get(k)).filter(v => typeof v === "string" && v.trim()).join(" ").trim();
+        await cache.put("/__shared/meta", new Response(JSON.stringify({ keys, text })));
         return Response.redirect("/?shared=1", 303);
       } catch (err) {
-        return Response.redirect("/?shared=error", 303);
+        try { return await fetch(backup); } catch (e2) { return Response.redirect("/?shared=error", 303); }
       }
     })());
     return;
