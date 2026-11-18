@@ -8,6 +8,8 @@
   const MAX_SRC = 2200;   // camera photo ko itne pixel tak chhota karke rakhte hain (memory bachane ke liye)
   const MAX_OUT = 1800;   // scan page ka sabse lamba hissa (pixels)
   const pages = [];       // { src: canvas, corners: [[x,y]x4] (0..1), rot: 0..3, filter, blob, url, w, h }
+  const FULL = () => [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const autoCorners = src => (window.PBDetect && window.PBDetect.detect(src)) || FULL();  // kone apne aap
 
   // ---------------------------------------------------------------- screen
   function openScan() {
@@ -45,12 +47,12 @@
     bmp.close && bmp.close();
     return c;
   }
-  async function addImages(list, filter = "doc", openFirst = true) {
+  async function addImages(list, filter = "doc", openFirst = true, auto = true) {
     const start = pages.length;
     for (const f of list) {
       try {
         const src = await fileToCanvas(f);
-        const page = { src, corners: [[0, 0], [1, 0], [1, 1], [0, 1]], rot: 0, filter };
+        const page = { src, corners: auto ? autoCorners(src) : FULL(), rot: 0, filter };
         await processPage(page);
         pages.push(page);
       } catch (e) { smsg("err", "Photo khul nahi paayi: " + (f.name || "")); }
@@ -81,7 +83,7 @@
         if (st.status === "error") throw new Error(st.message || "Scan nahi ho paaya");
         if (st.status === "done") {
           const blob = await fetch(`/api/scans/${r.scan_id}/file?key=${encodeURIComponent(r.key)}`).then(x => { if (!x.ok) throw new Error("Scan download nahi hua"); return x.blob(); });
-          await addImages([blob], "orig", true);
+          await addImages([blob], "orig", true, false);  // scanner ka poora page, kaatna nahi
           return smsg("ok", "✅ Scan aa gaya. Aur page ke liye dobara dabaiye.");
         }
       }
@@ -90,6 +92,106 @@
     finally { $("lapScanBtn").disabled = false; }
   }
   $("lapScanBtn").onclick = laptopScan;
+
+  // ---------------------------------------------------------------- LIVE SCANNER (auto focus + auto click)
+  const lv = { stream: null, track: null, timer: null, hist: [], auto: true, busy: false, needChange: false,
+               lastShot: 0, lastQ: null, torch: false, added: 0 };
+  const qDiff = (a, b) => (a && b) ? Math.max(...a.map((p, i) => Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]))) : 9;
+  const qArea = q => { let s = 0; for (let i = 0; i < 4; i++) { const a = q[i], b = q[(i + 1) % 4]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; };
+
+  async function openLive() {
+    if (!navigator.mediaDevices?.getUserMedia) return $("camIn").click();  // purana phone: camera app
+    try {
+      lv.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+        facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
+    } catch (e) {
+      smsg("err", "Camera nahi khula (permission?). 'Camera app' button se photo lijiye.");
+      return;
+    }
+    lv.track = lv.stream.getVideoTracks()[0];
+    try { await lv.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}  // lagatar auto focus
+    const caps = lv.track.getCapabilities ? lv.track.getCapabilities() : {};
+    $("lvTorch").classList.toggle("hidden", !caps.torch);
+    Object.assign(lv, { hist: [], needChange: false, added: 0, lastQ: null, torch: false });
+    $("lvCount").textContent = "0"; $("lvThumb").style.backgroundImage = "";
+    $("live").classList.remove("hidden");
+    const v = $("lvVideo"); v.srcObject = lv.stream; await v.play().catch(() => {});
+    tickLive();
+  }
+  function stopLive() {
+    clearTimeout(lv.timer);
+    if (lv.stream) lv.stream.getTracks().forEach(t => t.stop());
+    lv.stream = null; $("lvVideo").srcObject = null;
+    $("live").classList.add("hidden");
+  }
+  function videoBox() {  // video screen par kahan dikh raha hai (object-fit: contain)
+    const v = $("lvVideo"), W = v.clientWidth, H = v.clientHeight, s = Math.min(W / v.videoWidth, H / v.videoHeight);
+    return { x: (W - v.videoWidth * s) / 2, y: (H - v.videoHeight * s) / 2, w: v.videoWidth * s, h: v.videoHeight * s };
+  }
+  function drawLive(q, ready) {
+    const poly = $("lvPoly");
+    if (!q) { poly.setAttribute("points", ""); return; }
+    const b = videoBox();
+    poly.setAttribute("points", q.map(([x, y]) => `${b.x + x * b.w},${b.y + y * b.h}`).join(" "));
+    poly.classList.toggle("ready", !!ready);
+  }
+  function tickLive() {
+    if (!lv.stream) return;
+    const v = $("lvVideo");
+    if (v.readyState >= 2 && v.videoWidth && !lv.busy) {
+      const q = window.PBDetect ? window.PBDetect.detect(v, { fast: true }) : null;
+      if (q && qArea(q) > 0.12) {
+        lv.hist.push(q); if (lv.hist.length > 4) lv.hist.shift();
+        if (lv.needChange && qDiff(q, lv.lastQ) > 0.12) lv.needChange = false;  // naya page aaya
+        const stable = lv.hist.length >= 3 && lv.hist.every(h => qDiff(h, q) < 0.025);
+        drawLive(q, stable && !lv.needChange);
+        if (lv.needChange) $("lvHint").textContent = "✅ Ho gaya! Agla page rakhiye, ya 'Ho gaya' dabaiye";
+        else $("lvHint").textContent = stable ? (lv.auto ? "Sthir rakhiye… photo le rahe hain" : "Taiyaar! Button dabaiye") : "Kaagaz mil gaya, phone sthir rakhiye…";
+        if (stable && lv.auto && !lv.needChange && Date.now() - lv.lastShot > 1500) captureLive(q);
+      } else {
+        lv.hist = []; drawLive(null);
+        if (lv.needChange && !q) lv.needChange = false;  // page hata diya
+        if (!lv.needChange) $("lvHint").textContent = "Kaagaz ko frame mein rakhiye…";
+      }
+    }
+    lv.timer = setTimeout(tickLive, 300);
+  }
+  async function captureLive(liveQ) {
+    if (lv.busy || !lv.stream) return;
+    lv.busy = true; lv.lastShot = Date.now();
+    $("lvFlash").classList.add("on"); setTimeout(() => $("lvFlash").classList.remove("on"), 60);
+    if (navigator.vibrate) navigator.vibrate(40);
+    try {
+      let blob = null;
+      if (window.ImageCapture) {  // poore camera ki quality wali photo
+        try { blob = await new ImageCapture(lv.track).takePhoto(); } catch (e) { blob = null; }
+      }
+      if (!blob) {
+        const v = $("lvVideo"), c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext("2d").drawImage(v, 0, 0);
+        blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
+      }
+      const src = await fileToCanvas(blob);
+      const corners = (window.PBDetect && window.PBDetect.detect(src)) || liveQ || FULL();
+      const page = { src, corners, rot: 0, filter: "doc" };
+      await processPage(page);
+      pages.push(page); lv.added++;
+      $("lvCount").textContent = String(lv.added); $("lvThumb").style.backgroundImage = `url(${page.url})`;
+      lv.needChange = true; lv.lastQ = liveQ || corners; lv.hist = [];
+    } catch (e) {
+      $("lvHint").textContent = "Photo nahi li ja saki, dobara try kijiye";
+    } finally { lv.busy = false; }
+  }
+  $("liveBtn").onclick = openLive;
+  $("lvClose").onclick = () => { stopLive(); renderGrid(); };
+  $("lvDone").onclick = () => { stopLive(); renderGrid(); if (lv.added) smsg("ok", `✅ ${lv.added} page scan hue. Kisi page par tap karke kone ya rang badal sakte hain.`); };
+  $("lvShot").onclick = () => captureLive(lv.hist[lv.hist.length - 1] || null);
+  $("lvAuto").onclick = () => { lv.auto = !lv.auto; $("lvAuto").textContent = "Auto: " + (lv.auto ? "ON" : "OFF"); $("lvAuto").classList.toggle("on", lv.auto); };
+  $("lvTorch").onclick = async () => {
+    lv.torch = !lv.torch;
+    try { await lv.track.applyConstraints({ advanced: [{ torch: lv.torch }] }); } catch (e) { lv.torch = false; }
+    $("lvTorch").classList.toggle("on", lv.torch);
+  };
 
   // ---------------------------------------------------------------- image processing
   // 4 kone -> seedha rectangle (perspective theek karna)
@@ -240,6 +342,11 @@
   $("edFilter").onclick = e => { const b = e.target.closest("button"); if (b) { ed.filter = b.dataset.v; drawEditor(); } };
   $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; $("edTitle").textContent = `Page ${ed.i + 1} • ${ed.rot * 90}° ghumaya`; };
   $("edFull").onclick = () => { ed.corners = [[0, 0], [1, 0], [1, 1], [0, 1]]; placeHandles(); };
+  $("edAuto").onclick = () => {
+    const q = window.PBDetect && window.PBDetect.detect(ed.list[ed.i].src);
+    if (q) { ed.corners = q; placeHandles(); }
+    else $("edTitle").textContent = "Kone apne aap nahi mile, haath se lagaiye";
+  };
   $("edDel").onclick = () => {
     if (!confirm("Ye page hata dein?")) return;
     const { list, i, onDone } = ed;
@@ -364,7 +471,8 @@
     const f = e.target.files[0], side = +e.target.dataset.side; e.target.value = "";
     if (!f) return;
     try {
-      const page = { src: await fileToCanvas(f), corners: [[0, 0], [1, 0], [1, 1], [0, 1]], rot: 0, filter: "orig" };
+      const src = await fileToCanvas(f);
+      const page = { src, corners: autoCorners(src), rot: 0, filter: "orig" };
       await processPage(page);
       idPages[side] = page;
       await renderId();
@@ -409,5 +517,5 @@
   $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };
 
   // test ke liye
-  window.PBScan = { pages, idPages, addImages, makePdf, processPage, openEditor, idLayout, writePdf };
+  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, processPage, openEditor, idLayout, writePdf };
 })();
