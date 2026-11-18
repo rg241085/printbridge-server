@@ -545,6 +545,7 @@
     $("edMoveL").classList.toggle("hidden", !isPages() || pages.length < 2);
     $("edMoveR").classList.toggle("hidden", !isPages() || pages.length < 2);
     $("edAll").classList.toggle("hidden", !isPages() || pages.length < 2);
+    $("edDots").innerHTML = isPages() && pages.length > 1 && pages.length <= 20 ? pages.map((_, k) => `<i class="${k === ed.i ? "on" : ""}"></i>`).join("") : "";
     if (!crop) { $("edCanvas").style.opacity = ".15"; $("edBusy").classList.remove("hidden"); }
     requestAnimationFrame(() => crop ? drawCrop() : drawFilter());
   }
@@ -673,6 +674,7 @@
     cv.width = out.width; cv.height = out.height; cv.getContext("2d").drawImage(out, 0, 0);
     fitCanvas(cv, out.width, out.height, 16);
     cv.style.opacity = "1"; $("edBusy").classList.add("hidden");
+    if (ed.onDrawn) { const f = ed.onDrawn; ed.onDrawn = null; f(); }
     renderStrip(w, tok);
   }
   async function renderStrip(w, tok) {
@@ -718,6 +720,39 @@
     const { list, onDone } = ed;
     openEditor(j, list, onDone, "filter");
   }
+  // ungli se khiskao: baayein = agla page, daayein = pichhla (CamScanner jaisa)
+  let sw = null;
+  $("edStage").addEventListener("pointerdown", e => {
+    if (!ed || ed.step !== "filter" || !isPages() || pages.length < 2) return;
+    sw = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0 };
+  });
+  $("edStage").addEventListener("pointermove", e => {
+    if (!sw || e.pointerId !== sw.id) return;
+    sw.dx = e.clientX - sw.x;
+    if (Math.abs(e.clientY - sw.y) > Math.abs(sw.dx) * 1.5 && Math.abs(sw.dx) < 20) return;
+    let dx = sw.dx;
+    if ((dx > 0 && ed.i === 0) || (dx < 0 && ed.i >= pages.length - 1)) dx *= 0.3;  // aakhri page par rabar jaisa
+    const cv = $("edCanvas"); cv.style.transition = "none"; cv.style.transform = `translateX(${dx}px)`;
+  });
+  const endSwipe = e => {
+    if (!sw || (e && e.pointerId !== sw.id)) return;
+    const dx = sw.dx, cv = $("edCanvas"); sw = null;
+    const j = dx < -60 ? ed.i + 1 : dx > 60 ? ed.i - 1 : ed.i;
+    cv.style.transition = "transform .22s ease-out, opacity .15s";
+    if (j === ed.i || j < 0 || j >= pages.length) { cv.style.transform = ""; return; }
+    cv.style.transform = `translateX(${dx < 0 ? -window.innerWidth : window.innerWidth}px)`;
+    if (navigator.vibrate) navigator.vibrate(10);
+    setTimeout(async () => {
+      await goTo(j);
+      if (!ed) return;
+      ed.onDrawn = () => {  // naya page doosri taraf se andar aaye
+        const c2 = $("edCanvas"); c2.style.transition = "none"; c2.style.transform = `translateX(${dx < 0 ? 90 : -90}px)`;
+        requestAnimationFrame(() => requestAnimationFrame(() => { c2.style.transition = "transform .25s ease-out, opacity .15s"; c2.style.transform = ""; }));
+      };
+    }, 180);
+  };
+  $("edStage").addEventListener("pointerup", endSwipe);
+  $("edStage").addEventListener("pointercancel", endSwipe);
   $("edPrev").onclick = () => goTo(ed.i - 1);
   $("edNext").onclick = () => goTo(ed.i + 1);
   function movePage(dir) {
