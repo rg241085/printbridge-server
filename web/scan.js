@@ -28,12 +28,13 @@
 
   function renderGrid() {
     $("scanGrid").innerHTML = pages.length ? pages.map((p, i) =>
-      `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt=""><span class="no">${i + 1}</span></div>`).join("")
-      : `<p class="hint" style="grid-column:1/-1">Abhi koi page nahi. Camera se photo lijiye.</p>`;
+      `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt=""><span class="no">${i + 1}</span><span class="fl">${FNAMES[p.filter] || ""}</span></div>`).join("")
+      + `<div class="sp add" id="spAdd"><b>＋</b><span>Aur page</span></div>`
+      : `<p class="hint" style="grid-column:1/-1">Abhi koi page nahi. Neeche "Scan karein" dabaiye.</p>`;
     $("scanPrint").disabled = $("scanShare").disabled = !pages.length;
     $("scanPrint").textContent = pages.length > 1 ? `🖨 ${pages.length} page ki PDF banakar print karein` : "🖨 PDF banakar print karein";
   }
-  $("scanGrid").onclick = e => { const el = e.target.closest(".sp"); if (el) openEditor(+el.dataset.i); };
+  $("scanGrid").onclick = e => { const el = e.target.closest(".sp"); if (!el) return; if (el.id === "spAdd") return openLive(); openEditor(+el.dataset.i); };
 
   // ---------------------------------------------------------------- pages jodna
   async function fileToCanvas(blob) {
@@ -47,7 +48,8 @@
     bmp.close && bmp.close();
     return c;
   }
-  async function addImages(list, filter = "doc", openFirst = true, auto = true) {
+  async function addImages(list, filter = null, openFirst = true, auto = true) {
+    filter = filter || defFilter();
     const start = pages.length;
     for (const f of list) {
       try {
@@ -58,10 +60,10 @@
       } catch (e) { smsg("err", "Photo khul nahi paayi: " + (f.name || "")); }
     }
     renderGrid();
-    if (openFirst && pages.length > start) openEditor(start);
+    if (openFirst && pages.length > start) openEditor(start, pages, renderGrid, auto ? "crop" : "filter");
   }
   $("camIn").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addImages(f); };
-  $("galIn").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addImages(f, "doc", f.length === 1); };
+  $("galIn").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addImages(f, null, f.length === 1); };
 
   // Laptop ke scanner se
   async function laptopScan() {
@@ -93,11 +95,88 @@
   }
   $("lapScanBtn").onclick = laptopScan;
 
-  // ---------------------------------------------------------------- LIVE SCANNER (auto focus + auto click)
-  const lv = { stream: null, track: null, timer: null, hist: [], auto: true, busy: false, needChange: false,
-               lastShot: 0, lastQ: null, torch: false, added: 0 };
+  // ---------------------------------------------------------------- LIVE SCANNER (CamScanner jaisa)
+  // Kone alag thread (worker) mein dhoondhte hain, border 60fps par smooth chalti hai,
+  // phone sthir ho to shutter ka gol ghera bharta hai aur photo apne aap khinchti hai.
+  const HOLD = 1100;  // itni der sthir rahe to photo
+  const lv = { stream: null, track: null, raf: 0, auto: true, batch: true, busy: false, needChange: false, lastQ: null,
+               torch: false, added: 0, target: null, disp: null, alpha: 0, stableSince: 0, prevQ: null, seen: 0,
+               worker: null, wBusy: false, wId: 0, lastSend: 0, ms: 0, lastShot: 0 };
+  try { lv.batch = localStorage.getItem("pb.scanBatch") !== "0"; } catch (e) {}
   const qDiff = (a, b) => (a && b) ? Math.max(...a.map((p, i) => Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]))) : 9;
   const qArea = q => { let s = 0; for (let i = 0; i < 4; i++) { const a = q[i], b = q[(i + 1) % 4]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; };
+  const frameCv = document.createElement("canvas");
+
+  function startWorker() {
+    if (lv.worker || !window.Worker) return;
+    try {
+      lv.worker = new Worker("/detworker.js");
+      lv.worker.onmessage = e => { lv.wBusy = false; lv.ms = e.data.ms; onDetect(e.data.q); };
+      lv.worker.onerror = () => { lv.worker = null; lv.wBusy = false; };
+    } catch (e) { lv.worker = null; }
+  }
+  function sendFrame() {
+    const v = $("lvVideo");
+    if (lv.wBusy || lv.busy || v.readyState < 2 || !v.videoWidth) return;
+    const now = performance.now(); if (now - lv.lastSend < 90) return;
+    lv.lastSend = now;
+    if (!lv.worker) { onDetect(window.PBDetect ? window.PBDetect.detect(v, { fast: true }) : null); return; }  // purana browser
+    const s = 320 / Math.max(v.videoWidth, v.videoHeight);
+    frameCv.width = Math.round(v.videoWidth * s); frameCv.height = Math.round(v.videoHeight * s);
+    const x = frameCv.getContext("2d", { willReadFrequently: true });
+    x.drawImage(v, 0, 0, frameCv.width, frameCv.height);
+    const img = x.getImageData(0, 0, frameCv.width, frameCv.height);
+    lv.wBusy = true;
+    lv.worker.postMessage({ id: ++lv.wId, img }, [img.data.buffer]);
+  }
+  function onDetect(q) {
+    if (!lv.stream) return;
+    const now = performance.now();
+    if (q && qArea(q) > 0.1) {
+      lv.seen = now;
+      if (!lv.prevQ || qDiff(q, lv.prevQ) > 0.035) lv.stableSince = now;   // hil gaya -> ghadi dobara
+      lv.prevQ = q; lv.target = q;
+      if (lv.needChange && qDiff(q, lv.lastQ) > 0.12) lv.needChange = false;  // naya page aaya
+    } else if (now - lv.seen > 450) {   // thodi der na dikhe tabhi border hatao (jhilmil nahi)
+      lv.target = null; lv.prevQ = null;
+      if (lv.needChange && !q) lv.needChange = false;  // page hata diya
+    }
+  }
+  function videoBox() {  // video screen par kahan dikh raha hai (object-fit: contain)
+    const v = $("lvVideo"), W = v.clientWidth, H = v.clientHeight, s = Math.min(W / v.videoWidth, H / v.videoHeight);
+    return { x: (W - v.videoWidth * s) / 2, y: (H - v.videoHeight * s) / 2, w: v.videoWidth * s, h: v.videoHeight * s };
+  }
+  const RING = 2 * Math.PI * 34;
+  function frame() {
+    if (!lv.stream) return;
+    lv.raf = requestAnimationFrame(frame);
+    sendFrame();
+    const now = performance.now(), v = $("lvVideo");
+    // border ko dheere-dheere naye kono ki taraf le jao (smooth)
+    if (lv.target) {
+      lv.disp = lv.disp ? lv.disp.map((p, i) => [p[0] + (lv.target[i][0] - p[0]) * 0.35, p[1] + (lv.target[i][1] - p[1]) * 0.35]) : lv.target.map(p => [...p]);
+      lv.alpha = Math.min(1, lv.alpha + 0.15);
+    } else lv.alpha = Math.max(0, lv.alpha - 0.08);
+    const prog = (lv.target && !lv.needChange && !lv.busy) ? Math.min(1, (now - lv.stableSince) / HOLD) : 0;
+    const ready = prog > 0.35;
+    if (lv.disp && v.videoWidth) {
+      const b = videoBox(), pts = lv.disp.map(([x, y]) => [b.x + x * b.w, b.y + y * b.h]);
+      $("lvPoly").setAttribute("points", pts.map(p => p.join(",")).join(" "));
+      document.querySelectorAll("#lvSvg .cn").forEach((c, i) => { c.setAttribute("cx", pts[i][0]); c.setAttribute("cy", pts[i][1]); });
+    }
+    $("lvSvg").style.opacity = lv.alpha;
+    $("lvSvg").classList.toggle("ready", ready || lv.needChange);
+    $("lvRing").style.strokeDashoffset = lv.auto ? RING * (1 - prog) : RING;
+    let hint;
+    if (lv.busy) hint = "📸 Photo le rahe hain…";
+    else if (lv.needChange) hint = "✅ Ho gaya! Agla page rakhiye";
+    else if (!lv.target) hint = "Kaagaz ko frame mein rakhiye";
+    else if (qArea(lv.target) < 0.22) hint = "Thoda paas laaiye";
+    else if (!ready) hint = "Phone sthir rakhiye…";
+    else hint = lv.auto ? "Bas aise hi rakhiye…" : "Taiyaar! Button dabaiye";
+    if ($("lvHint").textContent !== hint) $("lvHint").textContent = hint;
+    if (lv.auto && prog >= 1 && now - lv.lastShot > 1200) captureLive(lv.target);
+  }
 
   async function openLive() {
     if (!navigator.mediaDevices?.getUserMedia) return $("camIn").click();  // purana phone: camera app
@@ -112,59 +191,47 @@
     try { await lv.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}  // lagatar auto focus
     const caps = lv.track.getCapabilities ? lv.track.getCapabilities() : {};
     $("lvTorch").classList.toggle("hidden", !caps.torch);
-    Object.assign(lv, { hist: [], needChange: false, added: 0, lastQ: null, torch: false });
-    $("lvCount").textContent = "0"; $("lvThumb").style.backgroundImage = "";
+    Object.assign(lv, { needChange: false, added: 0, lastQ: null, torch: false, target: null, disp: null, alpha: 0, prevQ: null, busy: false });
+    $("lvCount").textContent = "0"; $("lvThumb").style.backgroundImage = ""; $("lvThumb").classList.add("empty");
+    $("lvTorch").classList.remove("on");
+    setMode();
     $("live").classList.remove("hidden");
     const v = $("lvVideo"); v.srcObject = lv.stream; await v.play().catch(() => {});
-    tickLive();
+    startWorker();
+    cancelAnimationFrame(lv.raf); lv.raf = requestAnimationFrame(frame);
   }
   function stopLive() {
-    clearTimeout(lv.timer);
+    cancelAnimationFrame(lv.raf);
     if (lv.stream) lv.stream.getTracks().forEach(t => t.stop());
     lv.stream = null; $("lvVideo").srcObject = null;
     $("live").classList.add("hidden");
   }
-  function videoBox() {  // video screen par kahan dikh raha hai (object-fit: contain)
-    const v = $("lvVideo"), W = v.clientWidth, H = v.clientHeight, s = Math.min(W / v.videoWidth, H / v.videoHeight);
-    return { x: (W - v.videoWidth * s) / 2, y: (H - v.videoHeight * s) / 2, w: v.videoWidth * s, h: v.videoHeight * s };
+  function setMode() {
+    document.querySelectorAll("#lvMode button").forEach(b => b.classList.toggle("on", (b.dataset.v === "batch") === lv.batch));
+    $("lvDone").classList.toggle("hidden", !lv.batch);
   }
-  function drawLive(q, ready) {
-    const poly = $("lvPoly");
-    if (!q) { poly.setAttribute("points", ""); return; }
-    const b = videoBox();
-    poly.setAttribute("points", q.map(([x, y]) => `${b.x + x * b.w},${b.y + y * b.h}`).join(" "));
-    poly.classList.toggle("ready", !!ready);
-  }
-  function tickLive() {
-    if (!lv.stream) return;
-    const v = $("lvVideo");
-    if (v.readyState >= 2 && v.videoWidth && !lv.busy) {
-      const q = window.PBDetect ? window.PBDetect.detect(v, { fast: true }) : null;
-      if (q && qArea(q) > 0.12) {
-        lv.hist.push(q); if (lv.hist.length > 4) lv.hist.shift();
-        if (lv.needChange && qDiff(q, lv.lastQ) > 0.12) lv.needChange = false;  // naya page aaya
-        const stable = lv.hist.length >= 3 && lv.hist.every(h => qDiff(h, q) < 0.025);
-        drawLive(q, stable && !lv.needChange);
-        if (lv.needChange) $("lvHint").textContent = "✅ Ho gaya! Agla page rakhiye, ya 'Ho gaya' dabaiye";
-        else $("lvHint").textContent = stable ? (lv.auto ? "Sthir rakhiye… photo le rahe hain" : "Taiyaar! Button dabaiye") : "Kaagaz mil gaya, phone sthir rakhiye…";
-        if (stable && lv.auto && !lv.needChange && Date.now() - lv.lastShot > 1500) captureLive(q);
-      } else {
-        lv.hist = []; drawLive(null);
-        if (lv.needChange && !q) lv.needChange = false;  // page hata diya
-        if (!lv.needChange) $("lvHint").textContent = "Kaagaz ko frame mein rakhiye…";
-      }
-    }
-    lv.timer = setTimeout(tickLive, 300);
+  // photo ki chhoti tasveer udkar neeche kone mein jaati hai
+  function flyThumb(url, q) {
+    const st = $("lvStage").getBoundingClientRect(), th = $("lvThumb").getBoundingClientRect();
+    const b = videoBox(), qq = q || FULL();
+    const xs = qq.map(p => b.x + p[0] * b.w), ys = qq.map(p => b.y + p[1] * b.h);
+    const x0 = Math.min(...xs), y0 = Math.min(...ys), w0 = Math.max(...xs) - x0, h0 = Math.max(...ys) - y0;
+    const im = document.createElement("img"); im.className = "lvFly"; im.src = url;
+    Object.assign(im.style, { left: st.left + x0 + "px", top: st.top + y0 + "px", width: w0 + "px", height: h0 + "px" });
+    document.body.appendChild(im);
+    requestAnimationFrame(() => requestAnimationFrame(() => Object.assign(im.style, {
+      left: th.left + "px", top: th.top + "px", width: th.width + "px", height: th.height + "px", opacity: ".6" })));
+    setTimeout(() => im.remove(), 520);
   }
   async function captureLive(liveQ) {
     if (lv.busy || !lv.stream) return;
-    lv.busy = true; lv.lastShot = Date.now();
-    $("lvFlash").classList.add("on"); setTimeout(() => $("lvFlash").classList.remove("on"), 60);
-    if (navigator.vibrate) navigator.vibrate(40);
+    lv.busy = true; lv.lastShot = performance.now();
+    $("lvFlash").classList.add("on"); setTimeout(() => $("lvFlash").classList.remove("on"), 90);
+    if (navigator.vibrate) navigator.vibrate(35);
     try {
       let blob = null;
       if (window.ImageCapture) {  // poore camera ki quality wali photo
-        try { blob = await new ImageCapture(lv.track).takePhoto(); } catch (e) { blob = null; }
+        try { blob = await Promise.race([new ImageCapture(lv.track).takePhoto(), new Promise((_, r) => setTimeout(() => r(), 4000))]); } catch (e) { blob = null; }
       }
       if (!blob) {
         const v = $("lvVideo"), c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
@@ -173,25 +240,53 @@
       }
       const src = await fileToCanvas(blob);
       const corners = (window.PBDetect && window.PBDetect.detect(src)) || liveQ || FULL();
-      const page = { src, corners, rot: 0, filter: "doc" };
+      const page = { src, corners, rot: 0, filter: defFilter() };
       await processPage(page);
       pages.push(page); lv.added++;
-      $("lvCount").textContent = String(lv.added); $("lvThumb").style.backgroundImage = `url(${page.url})`;
-      lv.needChange = true; lv.lastQ = liveQ || corners; lv.hist = [];
+      if (!lv.batch) {  // ek page: seedha kone/rang wali screen
+        stopLive(); renderGrid(); openEditor(pages.length - 1, pages, renderGrid, "crop");
+        return;
+      }
+      flyThumb(page.url, liveQ || corners);
+      setTimeout(() => {
+        $("lvCount").textContent = String(lv.added); $("lvThumb").classList.remove("empty");
+        $("lvThumb").style.backgroundImage = `url(${page.url})`;
+      }, 430);
+      lv.needChange = true; lv.lastQ = liveQ || corners;
     } catch (e) {
       $("lvHint").textContent = "Photo nahi li ja saki, dobara try kijiye";
-    } finally { lv.busy = false; }
+    } finally { lv.busy = false; lv.stableSince = performance.now(); }
+  }
+  function liveDone() {
+    stopLive(); renderGrid();
+    if (lv.added) smsg("ok", `✅ ${lv.added} page scan hue. Kisi page par tap karke kone ya rang badal sakte hain.`);
   }
   $("liveBtn").onclick = openLive;
-  $("lvClose").onclick = () => { stopLive(); renderGrid(); };
-  $("lvDone").onclick = () => { stopLive(); renderGrid(); if (lv.added) smsg("ok", `✅ ${lv.added} page scan hue. Kisi page par tap karke kone ya rang badal sakte hain.`); };
-  $("lvShot").onclick = () => captureLive(lv.hist[lv.hist.length - 1] || null);
-  $("lvAuto").onclick = () => { lv.auto = !lv.auto; $("lvAuto").textContent = "Auto: " + (lv.auto ? "ON" : "OFF"); $("lvAuto").classList.toggle("on", lv.auto); };
+  $("lvClose").onclick = liveDone;
+  $("lvDone").onclick = liveDone;
+  $("lvThumb").onclick = () => { if (lv.added) liveDone(); };
+  $("lvShot").onclick = () => captureLive(lv.target);
+  $("lvMode").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    lv.batch = b.dataset.v === "batch"; try { localStorage.setItem("pb.scanBatch", lv.batch ? "1" : "0"); } catch (x) {}
+    setMode();
+  };
+  $("lvAuto").onclick = () => { lv.auto = !lv.auto; $("lvAuto").textContent = "Auto " + (lv.auto ? "ON" : "OFF"); $("lvAuto").classList.toggle("on", lv.auto); lv.stableSince = performance.now(); };
   $("lvTorch").onclick = async () => {
     lv.torch = !lv.torch;
     try { await lv.track.applyConstraints({ advanced: [{ torch: lv.torch }] }); } catch (e) { lv.torch = false; }
     $("lvTorch").classList.toggle("on", lv.torch);
   };
+  // video par tap = wahan focus (jin phones mein ho)
+  $("lvStage").addEventListener("click", async e => {
+    if (!lv.track || e.target.closest("button")) return;
+    const r = $("lvStage").getBoundingClientRect(), b = videoBox();
+    const x = (e.clientX - r.left - b.x) / b.w, y = (e.clientY - r.top - b.y) / b.h;
+    const ring = $("lvFocus"); ring.style.left = (e.clientX - r.left) + "px"; ring.style.top = (e.clientY - r.top) + "px";
+    ring.classList.remove("on"); void ring.offsetWidth; ring.classList.add("on");
+    try { await lv.track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x, y }], focusMode: "single-shot" }] });
+          setTimeout(() => lv.track && lv.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {}), 1500); } catch (err) {}
+  });
 
   // ---------------------------------------------------------------- image processing
   // 4 kone -> seedha rectangle (perspective theek karna)
@@ -215,18 +310,19 @@
     return b.map((v, i) => v / A[i][i]);
   }
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const isFull = cs => cs.every(([x, y], i) => x === [0, 1, 1, 0][i] && y === [0, 0, 1, 1][i]);
 
-  function warp(page) {
+  function warp(page, maxOut = MAX_OUT) {
     const W = page.src.width, H = page.src.height;
     const q = page.corners.map(([x, y]) => [x * W, y * H]);
-    const full = page.corners.every(([x, y], i) => x === [0, 1, 1, 0][i] && y === [0, 0, 1, 1][i]);
     let ow = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), oh = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
-    const s = Math.min(1, MAX_OUT / Math.max(ow, oh));
+    const s = Math.min(1, maxOut / Math.max(ow, oh));
     ow = Math.max(1, Math.round(ow * s)); oh = Math.max(1, Math.round(oh * s));
     const out = document.createElement("canvas"); out.width = ow; out.height = oh;
     const octx = out.getContext("2d");
-    if (full) { octx.drawImage(page.src, 0, 0, ow, oh); return out; }
-    const sd = page.src.getContext("2d").getImageData(0, 0, W, H).data;
+    if (isFull(page.corners)) { octx.imageSmoothingQuality = "high"; octx.drawImage(page.src, 0, 0, ow, oh); return out; }
+    if (!page._sd || page._sdSrc !== page.src) { page._sd = page.src.getContext("2d").getImageData(0, 0, W, H).data; page._sdSrc = page.src; }
+    const sd = page._sd;
     const od = octx.createImageData(ow, oh), o = od.data;
     const h = homography(q, [[0, 0], [ow, 0], [ow, oh], [0, oh]]);
     for (let y = 0; y < oh; y++) {
@@ -248,6 +344,12 @@
     octx.putImageData(od, 0, 0);
     return out;
   }
+  // kone wahi hon to dobara seedha na karo (filter badalna turant)
+  function warpCached(page) {
+    const key = JSON.stringify(page.corners);
+    if (page._wk !== key || !page._w) { page._w = warp(page); page._wk = key; }
+    return page._w;
+  }
 
   function rotate(c, rot) {
     if (!rot) return c;
@@ -258,95 +360,376 @@
     x.drawImage(c, -c.width / 2, -c.height / 2);
     return r;
   }
+  function copyCanvas(c, max = 1e9) {
+    const s = Math.min(1, max / Math.max(c.width, c.height));
+    const o = document.createElement("canvas"); o.width = Math.max(1, Math.round(c.width * s)); o.height = Math.max(1, Math.round(c.height * s));
+    const x = o.getContext("2d"); x.imageSmoothingQuality = "high"; x.drawImage(c, 0, 0, o.width, o.height);
+    return o;
+  }
 
-  // "Document" filter: chhaaya hatao (background se divide), safed kaagaz aur gehre akshar
-  function applyFilter(c, filter) {
-    if (filter === "orig") return c;
-    const w = c.width, h = c.height, ctx = c.getContext("2d");
-    const img = ctx.getImageData(0, 0, w, h), d = img.data;
-    const gray = new Uint8ClampedArray(w * h);
-    for (let i = 0, j = 0; i < d.length; i += 4, j++) gray[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
-    if (filter === "doc") {
-      // background (kaagaz ki roshni) ka andaza: chhota karke blur
-      const bw = Math.max(8, Math.round(w / 16)), bh = Math.max(8, Math.round(h / 16));
-      const small = document.createElement("canvas"); small.width = bw; small.height = bh;
-      const sx = small.getContext("2d"); sx.filter = "blur(3px)"; sx.drawImage(c, 0, 0, bw, bh);
-      const big = document.createElement("canvas"); big.width = w; big.height = h;
-      const bx = big.getContext("2d"); bx.imageSmoothingQuality = "high"; bx.drawImage(small, 0, 0, w, h);
-      const bd = bx.getImageData(0, 0, w, h).data;
-      for (let i = 0, j = 0; i < d.length; i += 4, j++) {
-        const bg = Math.max(30, (bd[i] * 299 + bd[i + 1] * 587 + bd[i + 2] * 114) / 1000 + 6);
-        let v = gray[j] / bg * 255;
-        v = (v - 80) * 255 / (235 - 80);          // levels: safed ko safed, akshar ko gehra
-        v = v < 0 ? 0 : v > 255 ? 255 : v;
-        d[i] = d[i + 1] = d[i + 2] = v;
+  // ---------------------------------------------------------------- FILTERS (rang)
+  const FILTERS = [
+    { v: "magic", name: "✨ Magic" },   // rang saaf + kaagaz safed + chhaaya gayab
+    { v: "orig", name: "Asli" },
+    { v: "light", name: "☀ Roshan" },
+    { v: "doc", name: "📄 Document" },
+    { v: "gray", name: "Grey" },
+    { v: "bw", name: "⚫ B&W" },
+  ];
+  const FNAMES = Object.fromEntries(FILTERS.map(f => [f.v, f.name]));
+  function defFilter() { try { const f = localStorage.getItem("pb.scanFilter"); if (FNAMES[f]) return f; } catch (e) {} return "magic"; }
+
+  // kaagaz ki roshni ka naksha: chhote khaano mein sabse ujla hissa (akshar/chhaaya chhodkar), phir smooth
+  function paperMap(d, w, h) {
+    const cs = Math.max(8, Math.round(Math.max(w, h) / 36)), gw = Math.ceil(w / cs), gh = Math.ceil(h / cs), n = gw * gh;
+    const cr = new Float32Array(n), cg = new Float32Array(n), cb = new Float32Array(n), cl = new Float32Array(n);
+    const hist = new Uint32Array(64), st = Math.max(1, cs >> 3);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      hist.fill(0); let cnt = 0;
+      const x1 = Math.min(w, (gx + 1) * cs), y1 = Math.min(h, (gy + 1) * cs);
+      for (let y = gy * cs; y < y1; y += st) for (let x = gx * cs; x < x1; x += st) {
+        const i = (y * w + x) * 4; hist[(d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 10]++; cnt++;
       }
+      let k = 63, acc = 0; const want = cnt * 0.12;   // sabse ujle 12%
+      while (k > 0 && acc + hist[k] < want) acc += hist[k--];
+      let r = 0, g = 0, b = 0, m = 0;
+      for (let y = gy * cs; y < y1; y += st) for (let x = gx * cs; x < x1; x += st) {
+        const i = (y * w + x) * 4;
+        if (((d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 10) >= k) { r += d[i]; g += d[i + 1]; b += d[i + 2]; m++; }
+      }
+      const j = gy * gw + gx; m = m || 1;
+      cr[j] = r / m; cg[j] = g / m; cb[j] = b / m; cl[j] = (cr[j] * 299 + cg[j] * 587 + cb[j] * 114) / 1000;
+    }
+    // jo khaane kaagaz nahi (photo / rangeen patti / gehra hissa) unhe aas-paas ke kaagaz se bharo.
+    // Chhaaya dheere-dheere badalti hai, photo ka kinaara achanak: is farq se pehchaante hain.
+    const sorted = Array.from(cl).sort((a, b) => a - b), paper = sorted[Math.floor(n * 0.75)] || 200;
+    const chroma = j => { const t = cr[j] + cg[j] + cb[j] + 1; return [cr[j] / t, cg[j] / t, cb[j] / t]; };
+    const refC = [0, 1, 2].map(k => { const v = []; for (let j = 0; j < n; j++) if (cl[j] > paper * 0.8) v.push(chroma(j)[k]); v.sort((a, b) => a - b); return v[v.length >> 1] || 1 / 3; });
+    let ok = new Uint8Array(n); const ref = new Float32Array(n);
+    for (let j = 0; j < n; j++) {
+      const ch = chroma(j), cd = Math.abs(ch[0] - refC[0]) + Math.abs(ch[1] - refC[1]) + Math.abs(ch[2] - refC[2]);
+      ok[j] = cl[j] > paper * 0.55 && cd < 0.12 ? 1 : 0; ref[j] = ok[j] ? cl[j] : paper;
+    }
+    for (let pass = 0, changed = 1; pass < 50 && changed; pass++) {
+      changed = 0;
+      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+        const j = gy * gw + gx; if (!ok[j]) continue;
+        let mx = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = gx + dx, yy = gy + dy; if ((!dx && !dy) || xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue;
+          const k = yy * gw + xx, v = ok[k] ? cl[k] : ref[k]; if (v > mx) mx = v;
+        }
+        if (cl[j] < mx * 0.8) { ok[j] = 0; ref[j] = mx; changed = 1; }
+      }
+    }
+    if (!ok.some(Boolean)) { ok.fill(1); }
+    for (let pass = 0; pass < 60; pass++) {
+      let left = 0; const nok = ok.slice();
+      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+        const j = gy * gw + gx; if (ok[j]) continue;
+        let r = 0, g = 0, b = 0, m = 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = gx + dx, yy = gy + dy; if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue;
+          const k = yy * gw + xx; if (ok[k]) { r += cr[k]; g += cg[k]; b += cb[k]; m++; }
+        }
+        if (m) { cr[j] = r / m; cg[j] = g / m; cb[j] = b / m; nok[j] = 1; } else left++;
+      }
+      ok = nok; if (!left) break;
+    }
+    // smooth + bada karo
+    const small = document.createElement("canvas"); small.width = gw; small.height = gh;
+    const sx = small.getContext("2d"), sid = sx.createImageData(gw, gh);
+    for (let rep = 0; rep < 2; rep++) for (const a of [cr, cg, cb]) {
+      const t = a.slice();
+      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+        let s = 0, m = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = gx + dx, yy = gy + dy; if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue; s += t[yy * gw + xx]; m++; }
+        a[gy * gw + gx] = s / m;
+      }
+    }
+    for (let j = 0; j < n; j++) { sid.data[j * 4] = cr[j]; sid.data[j * 4 + 1] = cg[j]; sid.data[j * 4 + 2] = cb[j]; sid.data[j * 4 + 3] = 255; }
+    sx.putImageData(sid, 0, 0);
+    const big = document.createElement("canvas"); big.width = w; big.height = h;
+    const bx = big.getContext("2d", { willReadFrequently: true }); bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = "high";
+    bx.drawImage(small, 0, 0, gw * cs, gh * cs);  // har khaane ki value uske beech mein
+    return bx.getImageData(0, 0, w, h).data;
+  }
+  function sharpen(d, w, h, a) {  // akshar ki dhaar tez (unsharp)
+    const src = new Uint8ClampedArray(d), row = w * 4;
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * row + x * 4;
+      for (let c = 0; c < 3; c++) {
+        const v = src[i + c];
+        d[i + c] = v + a * (4 * v - src[i + c - 4] - src[i + c + 4] - src[i + c - row] - src[i + c + row]);
+      }
+    }
+  }
+  function levels(d, lo, hi) {  // sabse gehra -> kaala, sabse ujla -> safed
+    const hist = new Uint32Array(256); let n = 0;
+    for (let i = 0; i < d.length; i += 16) { hist[(d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0]++; n++; }
+    let a = 0, s = 0; while (a < 255 && s + hist[a] < n * lo) s += hist[a++];
+    let b = 255; s = 0; while (b > 0 && s + hist[b] < n * hi) s += hist[b--];
+    return [a, Math.max(a + 20, b)];
+  }
+
+  function applyFilter(c, filter) {
+    if (filter === "orig" || !FNAMES[filter]) return c;
+    const w = c.width, h = c.height, ctx = c.getContext("2d", { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, w, h), d = img.data, n = w * h;
+    if (filter === "light") {          // rang wahi, bas ujla aur saaf
+      const [a, b] = levels(d, 0.01, 0.02), k = 255 / (b - a);
+      for (let i = 0; i < d.length; i += 4) for (let c2 = 0; c2 < 3; c2++) {
+        let v = (d[i + c2] - a) * k / 255; v = v < 0 ? 0 : v > 1 ? 1 : v;
+        d[i + c2] = Math.pow(v, 0.8) * 255;
+      }
+      sharpen(d, w, h, 0.25);
+    } else if (filter === "gray") {
+      const [a, b] = levels(d, 0.01, 0.01), k = 255 / (b - a);
+      for (let i = 0; i < d.length; i += 4) { const v = ((d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 - a) * k; d[i] = d[i + 1] = d[i + 2] = v; }
     } else {
-      for (let i = 0, j = 0; i < d.length; i += 4, j++) d[i] = d[i + 1] = d[i + 2] = gray[j];
+      const bg = paperMap(d, w, h);
+      if (filter === "magic") {        // har rang ko kaagaz ki roshni se baanto: chhaaya + peelapan gayab, rang chatak
+        for (let i = 0; i < d.length; i += 4) {
+          let r = d[i] / Math.max(25, bg[i]), g = d[i + 1] / Math.max(25, bg[i + 1]), b = d[i + 2] / Math.max(25, bg[i + 2]);
+          r = (r - 0.1) / 0.8; g = (g - 0.1) / 0.8; b = (b - 0.1) / 0.8;
+          const l = 0.299 * r + 0.587 * g + 0.114 * b, sat = 1.35;
+          r = l + (r - l) * sat; g = l + (g - l) * sat; b = l + (b - l) * sat;
+          d[i] = r * 255; d[i + 1] = g * 255; d[i + 2] = b * 255;
+        }
+        sharpen(d, w, h, 0.35);
+      } else {                          // doc (grey saaf) / bw (kaala-safed)
+        const bw = filter === "bw";
+        for (let i = 0; i < d.length; i += 4) {
+          const l = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000, pl = Math.max(25, (bg[i] * 299 + bg[i + 1] * 587 + bg[i + 2] * 114) / 1000);
+          const r = l / pl;
+          const v = bw ? (r - 0.74) * 2200 + 128 : (r - 0.3) * 255 / 0.62;
+          d[i] = d[i + 1] = d[i + 2] = v;
+        }
+        if (!bw) sharpen(d, w, h, 0.4);
+      }
     }
     ctx.putImageData(img, 0, 0);
     return c;
   }
 
   async function processPage(page) {
-    const out = applyFilter(rotate(warp(page), page.rot), page.filter);
+    const out = applyFilter(rotate(copyCanvas(warpCached(page)), page.rot), page.filter);
     page.w = out.width; page.h = out.height;
-    page.blob = await new Promise(res => out.toBlob(res, "image/jpeg", page.filter === "orig" ? 0.85 : 0.8));
+    page.blob = await new Promise(res => out.toBlob(res, "image/jpeg", page.filter === "orig" || page.filter === "light" ? 0.85 : 0.8));
     if (page.url) URL.revokeObjectURL(page.url);
     page.url = URL.createObjectURL(page.blob);
   }
 
-  // ---------------------------------------------------------------- editor
-  let ed = null;  // { list, i, corners, rot, filter, box, onDone }
-  function openEditor(i, list = pages, onDone = renderGrid) {
+  // ---------------------------------------------------------------- EDITOR: 1) Kone  2) Rang
+  let ed = null;  // { list, i, onDone, corners, rot, filter, step }
+  const isPages = () => ed && ed.list === pages;
+  function openEditor(i, list = pages, onDone = renderGrid, step) {
     const p = list[i];
-    ed = { list, i, onDone, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter };
-    $("edTitle").textContent = list === pages ? `Page ${i + 1} / ${pages.length}` : (i === 0 ? "Card: aage ka hissa" : "Card: peeche ka hissa");
+    ed = { list, i, onDone, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter, step: step || "filter", prev: null };
+    $("edStrip").innerHTML = ""; $("edStrip").dataset.key = "";
     $("editor").classList.remove("hidden");
-    requestAnimationFrame(drawEditor);
+    showStep();
   }
-  function drawEditor() {
-    const p = ed.list[ed.i], st = $("edStage"), cv = $("edCanvas");
-    const sw = st.clientWidth - 40, sh = st.clientHeight - 40;
-    const s = Math.min(sw / p.src.width, sh / p.src.height);
-    cv.width = Math.round(p.src.width * s); cv.height = Math.round(p.src.height * s);
-    cv.style.left = Math.round((st.clientWidth - cv.width) / 2) + "px";
-    cv.style.top = Math.round((st.clientHeight - cv.height) / 2) + "px";
+  function edTitle() {
+    if (isPages()) return `Page ${ed.i + 1} / ${pages.length}`;
+    return ed.i === 0 ? "Card: aage ka hissa" : "Card: peeche ka hissa";
+  }
+  function showStep() {
+    const crop = ed.step === "crop";
+    $("editor").classList.toggle("crop", crop);
+    $("edTitle").textContent = crop ? "✂ Kone theek kijiye" : edTitle();
+    $("edDone").textContent = crop ? "Aage →" : "✓ Theek hai";
+    $("edPrev").classList.toggle("hidden", crop || !isPages() || ed.i === 0);
+    $("edNext").classList.toggle("hidden", crop || !isPages() || ed.i >= pages.length - 1);
+    $("edMoveL").classList.toggle("hidden", !isPages() || pages.length < 2);
+    $("edMoveR").classList.toggle("hidden", !isPages() || pages.length < 2);
+    $("edAll").classList.toggle("hidden", !isPages() || pages.length < 2);
+    if (!crop) { $("edCanvas").style.opacity = ".15"; $("edBusy").classList.remove("hidden"); }
+    requestAnimationFrame(() => crop ? drawCrop() : drawFilter());
+  }
+  function fitCanvas(cv, w, h, pad = 28) {
+    const st = $("edStage"), s = Math.min((st.clientWidth - pad * 2) / w, (st.clientHeight - pad * 2) / h);
+    cv.style.width = Math.round(w * s) + "px"; cv.style.height = Math.round(h * s) + "px";
+    cv.style.left = Math.round((st.clientWidth - w * s) / 2) + "px"; cv.style.top = Math.round((st.clientHeight - h * s) / 2) + "px";
+    return s;
+  }
+  // ---- kone wali screen
+  function drawCrop() {
+    const p = ed.list[ed.i], cv = $("edCanvas"); cv.style.opacity = "1"; $("edBusy").classList.add("hidden");
+    const st = $("edStage"), s0 = Math.min((st.clientWidth - 56) / p.src.width, (st.clientHeight - 56) / p.src.height);
+    cv.width = Math.round(p.src.width * Math.min(1, s0 * (window.devicePixelRatio || 1)));
+    cv.height = Math.round(p.src.height * Math.min(1, s0 * (window.devicePixelRatio || 1)));
     cv.getContext("2d").drawImage(p.src, 0, 0, cv.width, cv.height);
-    ed.box = { x: cv.offsetLeft, y: cv.offsetTop, w: cv.width, h: cv.height };
-    document.querySelectorAll("#edFilter button").forEach(b => b.classList.toggle("on", b.dataset.v === ed.filter));
+    fitCanvas(cv, p.src.width, p.src.height);
+    ed.box = { x: cv.offsetLeft, y: cv.offsetTop, w: parseFloat(cv.style.width), h: parseFloat(cv.style.height) };
     placeHandles();
+  }
+  const MID = [[0, 1], [1, 2], [2, 3], [3, 0]];  // kinaare ke beech wale handle
+  function convexOk(c) {
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = c[i], b = c[(i + 1) % 4], d = c[(i + 2) % 4];
+      const z = (b[0] - a[0]) * (d[1] - b[1]) - (b[1] - a[1]) * (d[0] - b[0]);
+      if (Math.abs(z) < 1e-6) return false;
+      if (!sign) sign = Math.sign(z); else if (Math.sign(z) !== sign) return false;
+    }
+    return true;
   }
   function placeHandles() {
-    const { x, y, w, h } = ed.box;
+    const { x, y, w, h } = ed.box, P = ed.corners.map(([cx, cy]) => [x + cx * w, y + cy * h]);
     document.querySelectorAll("#edStage .hd").forEach(el => {
-      const [cx, cy] = ed.corners[+el.dataset.k];
-      el.style.left = (x + cx * w) + "px"; el.style.top = (y + cy * h) + "px";
+      const k = +el.dataset.k;
+      const pt = k < 4 ? P[k] : [(P[MID[k - 4][0]][0] + P[MID[k - 4][1]][0]) / 2, (P[MID[k - 4][0]][1] + P[MID[k - 4][1]][1]) / 2];
+      el.style.left = pt[0] + "px"; el.style.top = pt[1] + "px";
+      if (k >= 4) {  // kinaare ki disha mein ghuma do
+        const a = P[MID[k - 4][0]], b = P[MID[k - 4][1]];
+        el.style.transform = `rotate(${Math.atan2(b[1] - a[1], b[0] - a[0])}rad)`;
+      }
     });
-    $("edPoly").setAttribute("points", ed.corners.map(([cx, cy]) => `${x + cx * w},${y + cy * h}`).join(" "));
+    $("edPoly").setAttribute("points", P.map(p => p.join(",")).join(" "));
+    const st = $("edStage");
+    $("edShade").setAttribute("d", `M0 0H${st.clientWidth}V${st.clientHeight}H0Z M${P.map(p => p.join(" ")).join(" L")}Z`);
+    const bad = !convexOk(ed.corners);
+    $("editor").classList.toggle("bad", bad);
+    $("edDone").disabled = ed.step === "crop" && bad;
   }
-  let drag = null;
+  // magnifier: ungli ke neeche ka hissa bada karke dikhao
+  function drawLoupe(nx, ny) {
+    const p = ed.list[ed.i], L = $("edLoupe"), lc = L.getContext("2d"), S = L.width;
+    const zoom = 3.2, r = S / 2 / zoom * (p.src.width / ed.box.w);  // src pixels
+    lc.fillStyle = "#000"; lc.fillRect(0, 0, S, S);
+    lc.drawImage(p.src, nx * p.src.width - r, ny * p.src.height - r, r * 2, r * 2, 0, 0, S, S);
+    // kone ki lineein bhi zoom mein
+    const k = ed.drag, sc = S / (2 * r);
+    const toL = ([cx, cy]) => [(cx * p.src.width - (nx * p.src.width - r)) * sc, (cy * p.src.height - (ny * p.src.height - r)) * sc];
+    lc.strokeStyle = "#3b82f6"; lc.lineWidth = 2; lc.beginPath();
+    if (k < 4) { const a = toL(ed.corners[(k + 3) % 4]), b = toL(ed.corners[k]), c = toL(ed.corners[(k + 1) % 4]); lc.moveTo(...a); lc.lineTo(...b); lc.lineTo(...c); }
+    else { const [i0, i1] = MID[k - 4], a = toL(ed.corners[i0]), b = toL(ed.corners[i1]); lc.moveTo(...a); lc.lineTo(...b); }
+    lc.stroke();
+    lc.strokeStyle = "#fff"; lc.lineWidth = 1.5; lc.beginPath();
+    lc.moveTo(S / 2 - 10, S / 2); lc.lineTo(S / 2 + 10, S / 2); lc.moveTo(S / 2, S / 2 - 10); lc.lineTo(S / 2, S / 2 + 10); lc.stroke();
+    const st = $("edStage"), px = ed.box.x + nx * ed.box.w, py = ed.box.y + ny * ed.box.h;
+    // ungli ke upar; agar upar jagah nahi to doosre kone mein
+    let lx = px - S / 2, ly = py - S - 50;
+    if (ly < 4) { ly = 8; lx = px < st.clientWidth / 2 ? st.clientWidth - S - 8 : 8; }
+    lx = Math.max(4, Math.min(st.clientWidth - S - 4, lx));
+    L.style.left = lx + "px"; L.style.top = ly + "px"; L.classList.remove("hidden");
+  }
   $("edStage").addEventListener("pointerdown", e => {
+    if (!ed || ed.step !== "crop") return;
     const el = e.target.closest(".hd"); if (!el) return;
-    drag = +el.dataset.k; el.setPointerCapture(e.pointerId); e.preventDefault();
+    const r = $("edStage").getBoundingClientRect();
+    ed.drag = +el.dataset.k; ed.dragStart = [e.clientX - r.left, e.clientY - r.top]; ed.dragOrig = ed.corners.map(c => [...c]);
+    el.setPointerCapture(e.pointerId); el.classList.add("on"); e.preventDefault();
+    const pt = ed.drag < 4 ? ed.corners[ed.drag] : mid(ed.drag);
+    drawLoupe(pt[0], pt[1]);
   });
+  const clamp01 = v => Math.min(1, Math.max(0, v));
+  const mid = k => { const [a, b] = MID[k - 4]; return [(ed.corners[a][0] + ed.corners[b][0]) / 2, (ed.corners[a][1] + ed.corners[b][1]) / 2]; };
   $("edStage").addEventListener("pointermove", e => {
-    if (drag === null) return;
-    const r = $("edStage").getBoundingClientRect(), { x, y, w, h } = ed.box;
-    ed.corners[drag] = [Math.min(1, Math.max(0, (e.clientX - r.left - x) / w)), Math.min(1, Math.max(0, (e.clientY - r.top - y) / h))];
+    if (!ed || ed.drag == null) return;
+    const r = $("edStage").getBoundingClientRect(), { w, h } = ed.box;
+    const dx = (e.clientX - r.left - ed.dragStart[0]) / w, dy = (e.clientY - r.top - ed.dragStart[1]) / h;
+    const k = ed.drag;
+    if (k < 4) ed.corners[k] = [clamp01(ed.dragOrig[k][0] + dx), clamp01(ed.dragOrig[k][1] + dy)];
+    else for (const j of MID[k - 4]) ed.corners[j] = [clamp01(ed.dragOrig[j][0] + dx), clamp01(ed.dragOrig[j][1] + dy)];  // poora kinaara khisko
     placeHandles();
+    const pt = k < 4 ? ed.corners[k] : mid(k);
+    drawLoupe(pt[0], pt[1]);
   });
-  const endDrag = () => { drag = null; };
+  const endDrag = () => {
+    if (!ed) return; ed.drag = null;
+    $("edLoupe").classList.add("hidden");
+    document.querySelectorAll("#edStage .hd.on").forEach(h => h.classList.remove("on"));
+  };
   $("edStage").addEventListener("pointerup", endDrag);
   $("edStage").addEventListener("pointercancel", endDrag);
-  $("edFilter").onclick = e => { const b = e.target.closest("button"); if (b) { ed.filter = b.dataset.v; drawEditor(); } };
-  $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; $("edTitle").textContent = `Page ${ed.i + 1} • ${ed.rot * 90}° ghumaya`; };
-  $("edFull").onclick = () => { ed.corners = [[0, 0], [1, 0], [1, 1], [0, 1]]; placeHandles(); };
+  $("edFull").onclick = () => { ed.corners = FULL(); placeHandles(); };
   $("edAuto").onclick = () => {
     const q = window.PBDetect && window.PBDetect.detect(ed.list[ed.i].src);
     if (q) { ed.corners = q; placeHandles(); }
     else $("edTitle").textContent = "Kone apne aap nahi mile, haath se lagaiye";
   };
+  $("edCropBtn").onclick = () => { ed.back = ed.corners.map(c => [...c]); ed.step = "crop"; showStep(); };
+
+  // ---- rang wali screen (bada preview + filter ki patti)
+  let fTok = 0;
+  function edPage() {  // editor ki abhi ki settings wala page (asli mein badlav nahi)
+    const p = ed.list[ed.i];
+    return { src: p.src, corners: ed.corners, rot: ed.rot, filter: ed.filter, _sd: p._sd, _sdSrc: p._sdSrc,
+             _w: p._w, _wk: p._wk, real: p };
+  }
+  async function drawFilter() {
+    const tok = ++fTok, cv = $("edCanvas"), tmp = edPage();
+    $("edBusy").classList.remove("hidden");
+    await new Promise(r => setTimeout(r, 20));
+    const w = warpCached(tmp);
+    Object.assign(tmp.real, { _w: tmp._w, _wk: tmp._wk, _sd: tmp._sd, _sdSrc: tmp._sdSrc });  // cache bacha lo
+    if (tok !== fTok || !ed) return;
+    const st = $("edStage"), dpr = window.devicePixelRatio || 1;
+    const prevMax = Math.min(1400, Math.max(st.clientWidth, st.clientHeight) * dpr);
+    const out = applyFilter(rotate(copyCanvas(w, prevMax), ed.rot), ed.filter);
+    cv.width = out.width; cv.height = out.height; cv.getContext("2d").drawImage(out, 0, 0);
+    fitCanvas(cv, out.width, out.height, 16);
+    cv.style.opacity = "1"; $("edBusy").classList.add("hidden");
+    renderStrip(w, tok);
+  }
+  async function renderStrip(w, tok) {
+    const strip = $("edStrip");
+    if (strip.dataset.key !== ed.list[ed.i]._wk + "|" + ed.rot + "|" + ed.i) {
+      strip.dataset.key = ed.list[ed.i]._wk + "|" + ed.rot + "|" + ed.i;
+      strip.innerHTML = FILTERS.map(f => `<button data-v="${f.v}" class="${f.v === ed.filter ? "on" : ""}"><canvas></canvas><span>${f.name}</span></button>`).join("");
+      const on = strip.querySelector("button.on"); if (on) strip.scrollLeft = Math.max(0, on.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2);
+      const small = rotate(copyCanvas(w, 180), ed.rot);
+      for (const [k, f] of FILTERS.entries()) {
+        await new Promise(r => setTimeout(r, 0));
+        if (tok !== fTok || !ed) return;
+        const t = applyFilter(copyCanvas(small), f.v), c = strip.children[k].querySelector("canvas");
+        c.width = t.width; c.height = t.height; c.getContext("2d").drawImage(t, 0, 0);
+      }
+    }
+    strip.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === ed.filter));
+    const on = strip.querySelector("button.on");
+    if (on) strip.scrollLeft = Math.max(0, on.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2);
+  }
+  $("edStrip").onclick = e => {
+    const b = e.target.closest("button"); if (!b || !ed) return;
+    ed.filter = b.dataset.v;
+    try { if (isPages()) localStorage.setItem("pb.scanFilter", ed.filter); } catch (x) {}
+    $("edStrip").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    drawFilter();
+  };
+  $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; if (ed.step === "filter") drawFilter(); else $("edTitle").textContent = `⟳ ${ed.rot * 90}° ghumega`; };
+  $("edAll").onclick = async () => {
+    const f = ed.filter, b = $("edAll"); b.disabled = true; b.textContent = "…";
+    for (const p of pages) if (p !== ed.list[ed.i] && p.filter !== f) { p.filter = f; await processPage(p); }
+    b.disabled = false; b.textContent = "✔ Sab par laga";
+    setTimeout(() => { if (b.textContent.startsWith("✔")) b.textContent = "⧉ Sab pages par"; }, 1500);
+  };
+  async function saveEd() {
+    const p = ed.list[ed.i];
+    Object.assign(p, { corners: ed.corners, rot: ed.rot, filter: ed.filter });
+    await processPage(p);
+  }
+  async function goTo(j) {
+    $("edBusy").classList.remove("hidden");
+    await saveEd();
+    const { list, onDone } = ed;
+    openEditor(j, list, onDone, "filter");
+  }
+  $("edPrev").onclick = () => goTo(ed.i - 1);
+  $("edNext").onclick = () => goTo(ed.i + 1);
+  function movePage(dir) {
+    const j = ed.i + dir; if (j < 0 || j >= pages.length) return;
+    [pages[ed.i], pages[j]] = [pages[j], pages[ed.i]]; ed.i = j;
+    $("edTitle").textContent = edTitle() + (dir < 0 ? " ⬅" : " ➡");
+    $("edPrev").classList.toggle("hidden", ed.step === "crop" || ed.i === 0);
+    $("edNext").classList.toggle("hidden", ed.step === "crop" || ed.i >= pages.length - 1);
+    renderGrid();
+  }
+  $("edMoveL").onclick = () => movePage(-1);
+  $("edMoveR").onclick = () => movePage(1);
   $("edDel").onclick = () => {
     if (!confirm("Ye page hata dein?")) return;
     const { list, i, onDone } = ed;
@@ -354,18 +737,21 @@
     if (list === pages) list.splice(i, 1); else list[i] = null;
     closeEditor(); onDone();
   };
-  $("edClose").onclick = closeEditor;
+  $("edClose").onclick = () => {
+    if (ed && ed.step === "crop" && ed.back) { ed.step = "filter"; ed.corners = ed.back; ed.back = null; return showStep(); }
+    closeEditor();
+  };
   $("edDone").onclick = async () => {
-    const { list, i, onDone } = ed, p = list[i];
-    Object.assign(p, { corners: ed.corners, rot: ed.rot, filter: ed.filter });
-    $("edDone").textContent = "…";
+    if (ed.step === "crop") { ed.step = "filter"; ed.back = null; return showStep(); }
+    const { onDone } = ed;
+    $("edDone").textContent = "…"; $("edDone").disabled = true;
     await new Promise(r => setTimeout(r, 30));
-    await processPage(p);
-    $("edDone").textContent = "✓ Theek hai";
+    await saveEd();
+    $("edDone").disabled = false;
     closeEditor(); onDone();
   };
-  function closeEditor() { $("editor").classList.add("hidden"); ed = null; }
-  window.addEventListener("resize", () => { if (ed) drawEditor(); });
+  function closeEditor() { $("editor").classList.add("hidden"); $("edLoupe").classList.add("hidden"); ed = null; fTok++; }
+  window.addEventListener("resize", () => { if (ed) showStep(); });
 
   // ---------------------------------------------------------------- PDF banana (bina kisi library ke)
   // layout: [{ W, H, imgs: [{ blob, w, h }], draws: [{ img, x, y, w, h }], lines: [{ x, y, w, h }] }]  (points, neeche-baayein se)
@@ -476,7 +862,7 @@
       await processPage(page);
       idPages[side] = page;
       await renderId();
-      openEditor(side, idPages, renderId);
+      openEditor(side, idPages, renderId, "crop");
     } catch (err) { idMsg("err", "Photo khul nahi paayi"); }
   });
   ["idPrev0", "idPrev1"].forEach((id, side) => $(id).onclick = () => { if (idPages[side]) openEditor(side, idPages, renderId); });
@@ -517,5 +903,5 @@
   $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };
 
   // test ke liye
-  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, processPage, openEditor, idLayout, writePdf };
+  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();

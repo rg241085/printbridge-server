@@ -113,6 +113,8 @@
   .pv img, .sp img { max-width:100%; max-height:100%; }
   .pv.on { border-color:var(--blue); }
   .pv:not(.on) img { opacity:.35; }
+  .sp .fl { position:absolute; top:3px; right:3px; background:rgba(255,255,255,.9); color:#374151; font-size:9.5px; padding:1px 5px; border-radius:6px; }
+  .sp.add { border-style:dashed; flex-direction:column; color:var(--blue); gap:2px; font-size:12px; } .sp.add b { font-size:26px; font-weight:400; }
   .pv .no, .sp .no { position:absolute; bottom:3px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.65); color:#fff; font-size:11px; padding:1px 7px; border-radius:8px; }
   .pv .tick { position:absolute; top:4px; right:4px; width:20px; height:20px; border-radius:50%; background:#fff; border:2px solid #d1d5db; font-size:12px; display:flex; align-items:center; justify-content:center; }
   .pv.on .tick { background:var(--blue); border-color:var(--blue); color:#fff; }
@@ -124,39 +126,85 @@
   .filebtn { display:block; text-align:center; cursor:pointer; }
   .filebtn input { display:none; }
   #scanScreen .btn.light { margin-top:10px; }
-  #live { position:fixed; inset:0; background:#000; z-index:55; display:flex; flex-direction:column; color:#fff; }
-  .lvTop { display:flex; gap:8px; align-items:center; padding:12px 14px; }
-  .lvTop #lvClose { background:none; border:0; color:#fff; font-size:22px; padding:4px 8px; margin-right:auto; }
-  .pillbtn { background:rgba(255,255,255,.15); color:#fff; border:0; border-radius:20px; padding:8px 14px; font-size:14px; }
+  #live { position:fixed; inset:0; background:#000; z-index:55; display:flex; flex-direction:column; color:#fff; user-select:none; -webkit-user-select:none; }
+  .lvTop { display:flex; gap:8px; align-items:center; padding:10px 12px; background:linear-gradient(#000,#0000); }
+  .lvTop #lvClose { background:none; border:0; color:#fff; font-size:22px; padding:4px 8px; }
+  .lvSeg { display:flex; background:rgba(255,255,255,.14); border-radius:20px; padding:3px; margin-right:auto; }
+  .lvSeg button { background:none; border:0; color:#ddd; font-size:13px; padding:6px 12px; border-radius:16px; }
+  .lvSeg button.on { background:#fff; color:#111; font-weight:600; }
+  .pillbtn { background:rgba(255,255,255,.15); color:#fff; border:0; border-radius:20px; padding:8px 12px; font-size:13px; }
   .pillbtn.on { background:#16a34a; }
+  #lvTorch.on { background:#facc15; color:#111; }
   .lvStage { position:relative; flex:1; overflow:hidden; }
   .lvStage video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; }
-  .lvStage svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-  #lvPoly { fill:rgba(37,99,235,.18); stroke:#3b82f6; stroke-width:3; stroke-linejoin:round; transition:all .15s; }
-  #lvPoly.ready { fill:rgba(22,163,74,.25); stroke:#22c55e; stroke-width:4; }
-  .lvFlash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .25s; }
-  .lvFlash.on { opacity:.85; transition:none; }
-  .lvHint { text-align:center; font-size:15px; padding:8px; min-height:22px; }
-  .lvBottom { display:flex; align-items:center; justify-content:space-between; padding:10px 22px 26px; }
-  .lvThumb { width:56px; height:72px; border-radius:8px; border:2px solid #fff; background:#222 center/cover; position:relative; }
-  .lvThumb span { position:absolute; right:-8px; top:-8px; background:#2563eb; border-radius:12px; padding:1px 7px; font-size:13px; font-weight:700; }
-  .lvShutter { width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.25); }
-  .lvShutter:active { background:#fff; }
-  .lvDone { background:#2563eb; color:#fff; border:0; border-radius:12px; padding:12px 16px; font-size:15px; font-weight:600; }
-  #editor { position:fixed; inset:0; background:#111; z-index:60; display:flex; flex-direction:column; color:#fff; }
-  .edTop { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; }
+  #lvSvg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; opacity:0; }
+  #lvPoly { fill:rgba(59,130,246,.22); stroke:#60a5fa; stroke-width:3; stroke-linejoin:round; transition:fill .25s, stroke .25s; }
+  #lvSvg .cn { fill:#fff; stroke:#3b82f6; stroke-width:3; transition:stroke .25s; }
+  #lvSvg.ready #lvPoly { fill:rgba(34,197,94,.28); stroke:#4ade80; }
+  #lvSvg.ready .cn { stroke:#22c55e; }
+  .lvFocus { position:absolute; width:64px; height:64px; margin:-32px 0 0 -32px; border:2px solid #facc15; border-radius:50%; opacity:0; pointer-events:none; }
+  .lvFocus.on { animation:lvf .9s ease-out; }
+  @keyframes lvf { 0% { opacity:1; transform:scale(1.5); } 40% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(1); } }
+  .lvFlash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .3s; }
+  .lvFlash.on { opacity:.9; transition:none; }
+  .lvHint { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); background:rgba(0,0,0,.6); border-radius:20px;
+            font-size:14px; padding:7px 16px; white-space:nowrap; pointer-events:none; }
+  .lvBottom { display:flex; align-items:center; justify-content:space-between; padding:14px 22px 26px; }
+  .lvThumb { width:54px; height:70px; border-radius:8px; border:2px solid #fff; background:#222 center/cover; position:relative; transition:transform .2s; }
+  .lvThumb.empty { opacity:.35; }
+  .lvThumb span { position:absolute; right:-9px; top:-9px; background:#2563eb; border-radius:12px; padding:1px 7px; font-size:13px; font-weight:700; }
+  .lvShutter { position:relative; width:78px; height:78px; border-radius:50%; border:0; background:none; padding:0; }
+  .lvShutter svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+  .lvShutter .bgr { fill:none; stroke:rgba(255,255,255,.9); stroke-width:5; }
+  #lvRing { fill:none; stroke:#22c55e; stroke-width:6; stroke-linecap:round; stroke-dasharray:213.6; stroke-dashoffset:213.6; }
+  .lvShutter i { position:absolute; inset:11px; border-radius:50%; background:#fff; transition:transform .1s; }
+  .lvShutter:active i { transform:scale(.88); }
+  .lvDone { background:#2563eb; color:#fff; border:0; border-radius:12px; padding:12px 14px; font-size:15px; font-weight:600; min-width:96px; }
+  .lvDone.hidden { display:block !important; visibility:hidden; }
+  .lvFly { position:fixed; z-index:70; object-fit:cover; border-radius:6px; box-shadow:0 6px 24px rgba(0,0,0,.5); pointer-events:none;
+           transition:all .45s cubic-bezier(.5,0,.3,1); }
+  #editor { position:fixed; inset:0; background:#111; z-index:60; display:flex; flex-direction:column; color:#fff; user-select:none; -webkit-user-select:none; }
+  .edTop { display:flex; align-items:center; gap:4px; padding:10px 12px; }
   .edTop button { background:none; border:0; color:#fff; font-size:17px; padding:6px 8px; }
-  .edTop #edDone { background:var(--blue); border-radius:10px; font-weight:600; }
-  .edStage { flex:1; position:relative; touch-action:none; overflow:hidden; }
-  .edStage canvas { position:absolute; }
+  .edTop #edTitle { flex:1; text-align:center; font-size:15px; }
+  .edTop .edNav { font-size:26px; line-height:1; padding:0 10px; color:#9ca3af; }
+  .edTop #edDone { background:var(--blue); border-radius:10px; font-weight:600; font-size:15px; padding:8px 14px; }
+  .edTop #edDone:disabled { opacity:.4; }
+  .edStage { flex:1; position:relative; touch-action:none; overflow:hidden; background:#0b0b0b; }
+  #edCanvas { position:absolute; box-shadow:0 4px 30px rgba(0,0,0,.6); transition:opacity .15s; }
   .edStage svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-  .edStage polygon { fill:rgba(26,86,219,.15); stroke:#4f8cff; stroke-width:2; }
-  .hd { position:absolute; width:34px; height:34px; margin:-17px 0 0 -17px; border-radius:50%; border:3px solid #fff; background:rgba(26,86,219,.7); z-index:2; touch-action:none; }
-  .edBottom { padding:12px 14px 22px; }
+  #edShade { fill:rgba(0,0,0,.45); }
+  #edPoly { fill:none; stroke:#3b82f6; stroke-width:2.5; stroke-linejoin:round; }
+  #editor.bad #edPoly { stroke:#ef4444; }
+  .hd { position:absolute; width:44px; height:44px; margin:-22px 0 0 -22px; z-index:2; touch-action:none; }
+  .hd::after { content:""; position:absolute; inset:11px; border-radius:50%; border:3px solid #3b82f6; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.6); }
+  .hd.side::after { inset:17px 9px; border-radius:6px; }
+  .hd.on::after { background:#3b82f6; border-color:#fff; }
+  #editor.bad .hd::after { border-color:#ef4444; }
+  #edLoupe { position:absolute; width:132px; height:132px; border-radius:50%; border:3px solid #fff; box-shadow:0 4px 20px rgba(0,0,0,.6); z-index:4; pointer-events:none; }
+  #edBusy { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  #edBusy span { width:34px; height:34px; border-radius:50%; border:4px solid rgba(255,255,255,.25); border-top-color:#fff; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #edBad { position:absolute; left:50%; top:10px; transform:translateX(-50%); background:#ef4444; border-radius:16px; padding:5px 12px; font-size:13px; display:none; }
+  #editor.crop.bad #edBad { display:block; }
+  #editor:not(.crop) .hd, #editor:not(.crop) #edLines { display:none; }
+  #editor.crop .fOnly, #editor.crop .edStrip { display:none; }
+  #editor:not(.crop) .cOnly { display:none; }
+  .edBottom { padding:8px 10px 18px; background:#161616; }
+  .edStrip { display:flex; gap:8px; overflow-x:auto; padding:4px 2px 8px; scrollbar-width:none; }
+  .edStrip::-webkit-scrollbar { display:none; }
+  .edStrip button { flex:0 0 auto; width:70px; background:none; border:0; color:#bbb; font-size:11.5px; padding:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .edStrip canvas { width:62px; height:78px; object-fit:contain; background:#222; border-radius:8px; border:2px solid transparent; }
+  .edStrip button.on { color:#fff; font-weight:600; }
+  .edStrip button.on canvas { border-color:#3b82f6; }
   .seg.dark { border-color:#444; } .seg.dark button { background:#222; color:#ddd; border-color:#444; }
   .seg.dark button.on { background:var(--blue); color:#fff; }
-  .edBtns { display:flex; gap:8px; margin-top:10px; }
-  .edBtns button { flex:1; background:#2a2a2a; color:#fff; border:0; border-radius:10px; padding:12px 4px; font-size:14px; }
+  .edBtns { display:flex; gap:4px; margin-top:4px; overflow-x:auto; scrollbar-width:none; }
+  .edBtns button { flex:1 0 auto; min-width:58px; background:none; color:#ddd; border:0; border-radius:10px; padding:6px 4px; font-size:11.5px;
+                   display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .edBtns button b { font-size:20px; font-weight:400; line-height:1; }
+  .edBtns button:active { background:#2a2a2a; }
+  .edBtns button:disabled { opacity:.4; }
   .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin:22px 0 4px; }
   .or::before, .or::after { content:""; flex:1; height:1px; background:#e5e7eb; }
   /* QR scanner */
@@ -421,33 +469,54 @@
 <!-- ===== Live scanner ===== -->
 <div id="live" class="hidden">
   <div class="lvTop">
-    <button id="lvClose">✕</button>
-    <button id="lvAuto" class="pillbtn on">Auto: ON</button>
-    <button id="lvTorch" class="pillbtn hidden">🔦 Torch</button>
+    <button id="lvClose" aria-label="band">✕</button>
+    <div class="lvSeg" id="lvMode"><button data-v="single">Ek page</button><button data-v="batch" class="on">Kai page</button></div>
+    <button id="lvTorch" class="pillbtn hidden">🔦</button>
+    <button id="lvAuto" class="pillbtn on">Auto ON</button>
   </div>
   <div class="lvStage" id="lvStage">
     <video id="lvVideo" playsinline muted autoplay></video>
-    <svg id="lvSvg"><polygon id="lvPoly"/></svg>
+    <svg id="lvSvg"><polygon id="lvPoly"/><circle class="cn" r="7"/><circle class="cn" r="7"/><circle class="cn" r="7"/><circle class="cn" r="7"/></svg>
+    <div class="lvFocus" id="lvFocus"></div>
     <div class="lvFlash" id="lvFlash"></div>
+    <div class="lvHint" id="lvHint">Kaagaz ko frame mein rakhiye</div>
   </div>
-  <div class="lvHint" id="lvHint">Kaagaz ko frame mein rakhiye…</div>
   <div class="lvBottom">
-    <div class="lvThumb" id="lvThumb"><span id="lvCount">0</span></div>
-    <button class="lvShutter" id="lvShot" aria-label="photo lo"></button>
-    <button class="lvDone" id="lvDone">Ho gaya</button>
+    <div class="lvThumb empty" id="lvThumb"><span id="lvCount">0</span></div>
+    <button class="lvShutter" id="lvShot" aria-label="photo lo">
+      <svg viewBox="0 0 76 76"><circle cx="38" cy="38" r="34" class="bgr"/><circle cx="38" cy="38" r="34" id="lvRing"/></svg><i></i>
+    </button>
+    <button class="lvDone" id="lvDone">Ho gaya →</button>
   </div>
 </div>
 
 <!-- ===== Scan page editor ===== -->
 <div id="editor" class="hidden">
-  <div class="edTop"><button id="edClose">✕</button><span id="edTitle">Page 1</span><button id="edDone">✓ Theek hai</button></div>
+  <div class="edTop">
+    <button id="edClose" aria-label="band">✕</button>
+    <button id="edPrev" class="edNav">‹</button><span id="edTitle">Page 1</span><button id="edNext" class="edNav">›</button>
+    <button id="edDone">✓ Theek hai</button>
+  </div>
   <div class="edStage" id="edStage"><canvas id="edCanvas"></canvas>
+    <svg id="edLines"><path id="edShade" fill-rule="evenodd"/><polygon id="edPoly"/></svg>
     <div class="hd" data-k="0"></div><div class="hd" data-k="1"></div><div class="hd" data-k="2"></div><div class="hd" data-k="3"></div>
-    <svg id="edLines"><polygon id="edPoly"/></svg>
+    <div class="hd side" data-k="4"></div><div class="hd side" data-k="5"></div><div class="hd side" data-k="6"></div><div class="hd side" data-k="7"></div>
+    <canvas id="edLoupe" class="hidden" width="132" height="132"></canvas>
+    <div id="edBusy" class="hidden"><span></span></div>
+    <div id="edBad">⚠ Kone ulte-seedhe hain, theek kijiye</div>
   </div>
   <div class="edBottom">
-    <div class="seg dark" id="edFilter"><button data-v="orig">Asli</button><button data-v="doc">📄 Document</button><button data-v="gray">Grey</button></div>
-    <div class="edBtns"><button id="edAuto">✨ Auto</button><button id="edRotate">⟳ Ghumaiye</button><button id="edFull">⛶ Poora</button><button id="edDel">🗑 Hataiye</button></div>
+    <div class="edStrip" id="edStrip"></div>
+    <div class="edBtns">
+      <button id="edCropBtn" class="fOnly"><b>✂</b>Kone</button>
+      <button id="edAuto" class="cOnly"><b>✨</b>Auto</button>
+      <button id="edFull" class="cOnly"><b>⛶</b>Poora</button>
+      <button id="edRotate"><b>⟳</b>Ghumaiye</button>
+      <button id="edAll" class="fOnly"><b>⧉</b>Sab pages par</button>
+      <button id="edMoveL" class="fOnly"><b>⇠</b>Peeche</button>
+      <button id="edMoveR" class="fOnly"><b>⇢</b>Aage</button>
+      <button id="edDel"><b>🗑</b>Hataiye</button>
+    </div>
   </div>
 </div>
 

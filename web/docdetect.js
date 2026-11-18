@@ -6,6 +6,7 @@
   const SIZE = 360;  // itne pixel par kaam (tez + kaafi sahi)
 
   function toImageData(src, size = SIZE) {
+    if (src && src.data && src.width) return src;  // pehle se chhota kiya hua ImageData (worker)
     const sw = src.videoWidth || src.width, sh = src.videoHeight || src.height;
     const s = size / Math.max(sw, sh);
     const w = Math.max(8, Math.round(sw * s)), h = Math.max(8, Math.round(sh * s));
@@ -241,9 +242,10 @@
   }
 
   function detect(src, opts = {}) {
-    // opts.fast: live camera ke liye (chhota size, sirf gray). Photo ke baad: poora (rangeen kinaare bhi).
+    // opts.fast: live camera ke liye (chhota size). Rangeen kinaare dono mein (card ke liye zaroori).
     try {
-      const img = toImageData(src, opts.fast ? 240 : SIZE), { width: w, height: h, data: d } = img, n = w * h;
+      const color = opts.color !== false;
+      const img = toImageData(src, opts.size || (opts.fast ? 240 : SIZE)), { width: w, height: h, data: d } = img, n = w * h;
       // background ka rang: kinaaron ka median
       const bw = Math.max(2, Math.round(Math.min(w, h) * 0.04)), R = [], G = [], B = [];
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -253,7 +255,7 @@
       const med = a => { a.sort((x, y) => x - y); return a[a.length >> 1]; };
       const br = med(R), bg = med(G), bb = med(B);
       const dist = new Uint8Array(n), gray = new Uint8Array(n);
-      const rC = opts.fast ? null : new Uint8Array(n), gC = opts.fast ? null : new Uint8Array(n), bC = opts.fast ? null : new Uint8Array(n);
+      const rC = color ? new Uint8Array(n) : null, gC = color ? new Uint8Array(n) : null, bC = color ? new Uint8Array(n) : null;
       for (let i = 0, j = 0; j < n; i += 4, j++) {
         if (rC) { rC[j] = d[i]; gC[j] = d[i + 1]; bC[j] = d[i + 2]; }
         dist[j] = Math.min(255, (Math.abs(d[i] - br) + Math.abs(d[i + 1] - bg) + Math.abs(d[i + 2] - bb)) / 2);
@@ -268,7 +270,7 @@
       const gb = blur(blur(closed, w, h), w, h), t2 = otsu(gb, n);
       { const m = new Uint8Array(n); for (let i = 0; i < n; i++) m[i] = gb[i] > t2 ? 1 : 0; const r = fromMask(m, w, h); if (r) tries.push(r); }
       // 3) kinaaron ki seedhi lineein (halki table / chhaaya mein bhi)
-      const e = edgeMap(opts.fast ? [closed] : [closeText(rC, w, h), closeText(gC, w, h), closeText(bC, w, h)], w, h);
+      const e = edgeMap(!color ? [closed] : [closeText(rC, w, h), closeText(gC, w, h), closeText(bC, w, h)], w, h);
       const cands = tries.map(t => order(t.q)).concat(houghQuads(e, w, h));
       if (!cands.length) return null;
       // sabse achha: jiske kinaare photo ki lineon par baithe (support) aur jo bada ho
@@ -291,5 +293,5 @@
     return { w, h, edges: ecount, lines: L.map(l => [l.t, l.rho, l.votes]).slice(0, 10), hq: hq.length, topSupport: sup,
              edgeImg: Array.from(e) };
   }
-  window.PBDetect = { detect, debug };
+  (typeof window !== "undefined" ? window : self).PBDetect = { detect, debug };
 })();
