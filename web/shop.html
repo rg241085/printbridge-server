@@ -72,6 +72,8 @@
   .priv { font-size:13px; color:var(--mut); margin:6px 0 0; line-height:1.5; }
   .pill { display:inline-block; background:#ede9fe; color:var(--c); border-radius:20px; padding:2px 10px; font-size:12.5px; margin-top:6px; }
   .pulse { animation:p 1.4s infinite; } @keyframes p { 50% { opacity:.45; } }
+  .sinfo { list-style:none; margin:10px 0 0; padding:10px 12px; background:#f5f3ff; border-radius:10px; font-size:13px; color:#4c1d95; }
+  .sinfo li { padding:2px 0; }
 </style>
 </head>
 <body>
@@ -89,9 +91,10 @@
     <section class="card" id="whoCard">
       <div class="banner hidden" id="shopMsg"></div>
       <div class="rates"><div>Black &amp; White<b id="rBW">₹—</b>per sheet</div><div>Color<b id="rC">₹—</b>per sheet</div></div>
+      <ul class="sinfo hidden" id="shopInfo"></ul>
       <label class="r" for="cname">Your name *</label>
       <input class="t" id="cname" maxlength="40" autocomplete="name" placeholder="e.g. Rahul">
-      <label class="r" for="cmob">Mobile number <small>(optional, visible only to the shop)</small></label>
+      <label class="r" for="cmob">Mobile number <small id="mobHint">(optional, visible only to the shop)</small></label>
       <input class="t" id="cmob" maxlength="15" inputmode="tel" autocomplete="tel" placeholder="98xxxxxxxx">
     </section>
 
@@ -197,6 +200,13 @@
       $("paperSeg").innerHTML = ["default", ...caps.papers].map(k => `<button data-v="${k}" class="${k === "default" ? "on" : ""}">${PAPER[k]}</button>`).join("");
     }
     if (caps.duplex) $("duplexRow").classList.remove("hidden");
+    // shop ki shartein: samay, minimum, chhoot, mobile zaroori
+    const info2 = [];
+    if (info.hours) info2.push(`🕘 Open: ${esc(info.hours)}`);
+    if (+info.bulk_pct > 0 && +info.bulk_after > 0) info2.push(`🏷 ${+info.bulk_pct}% off on orders above ${+info.bulk_after} sheets`);
+    if (+info.min_charge > 0) info2.push(`Minimum charge ${rs(+info.min_charge)} per order`);
+    if (info2.length) { $("shopInfo").innerHTML = info2.map(x => `<li>${x}</li>`).join(""); $("shopInfo").classList.remove("hidden"); }
+    if (info.require_mobile) { $("mobHint").textContent = "* (required, visible only to the shop)"; }
     const s = saved();
     $("cname").value = s.name || ""; $("cmob").value = s.mobile || "";
     if (s.order) { showStatus(); } else $("form").classList.remove("hidden");
@@ -307,9 +317,13 @@
     const rate = +(opt.color === "color" ? rates.color_rate : rates.bw_rate) || 0, nup = +opt.nup;
     let sheets = 0, unknown = 0;
     for (const it of items) { if (it.n == null) unknown++; else sheets += Math.ceil(it.sel.size / nup); }
-    const total = sheets * copies * rate;
-    $("est").textContent = rs(total) + (unknown ? " +" : "");
-    $("estPages").textContent = items.length ? `${sheets * copies} ${sheets * copies === 1 ? "sheet" : "sheets"}${unknown ? ` • pages of ${unknown} file(s) will be counted at the shop` : ""}` : "Choose files";
+    let total = sheets * copies * rate, note = "";
+    if (+rates.bulk_pct > 0 && +rates.bulk_after > 0 && sheets * copies > +rates.bulk_after) {
+      total -= total * rates.bulk_pct / 100; note = ` • ${+rates.bulk_pct}% bulk discount`;
+    }
+    if (+rates.min_charge > 0 && total > 0 && total < +rates.min_charge && !unknown) { total = +rates.min_charge; note = " • minimum charge"; }
+    $("est").textContent = rs(Math.round(total * 100) / 100) + (unknown ? " +" : "");
+    $("estPages").textContent = items.length ? `${sheets * copies} ${sheets * copies === 1 ? "sheet" : "sheets"}${note}${unknown ? ` • pages of ${unknown} file(s) will be counted at the shop` : ""}` : "Choose files";
   }
 
   function upload(it, orderId) {
@@ -331,6 +345,7 @@
     if (addTo && !$("cname").value.trim()) $("cname").value = saved().name || "Customer";
     const name = $("cname").value.trim();
     if (!name) { $("cname").focus(); return msg("err", "Please enter your name"); }
+    if (rates.require_mobile && $("cmob").value.replace(/\D/g, "").length < 10) { $("cmob").focus(); return msg("err", "Please enter your mobile number"); }
     const empty = items.find(it => it.n != null && it.sel.size === 0);
     if (empty) return msg("err", `No pages selected in "${empty.file.name}"`);
     const lockedF = items.find(it => it.locked);
@@ -371,7 +386,7 @@
       $("sub").textContent = r.status === "waiting" ? (r.ahead ? `${r.ahead} ${r.ahead === 1 ? "order" : "orders"} ahead of you` : "You are next") : (r.message && r.status !== "ready" ? r.message : sub);
       $("olist").innerHTML = r.files.map(f => `<li><span class="n">📄 ${esc(f.name)}</span><span class="s">${f.status === "error" ? "❌ " + esc(f.message || "") : f.sheets == null ? (f.status === "receiving" ? "…" : "? sheets") : `${f.sheets} × ${f.copies} ${f.color === "color" ? "🎨" : "⚫"} = ${rs(f.price)}`}</span></li>`).join("")
         + (s.errs && s.errs.length ? s.errs.map(e => `<li><span class="n">❌ ${esc(e)}</span></li>`).join("") : "");
-      $("otot").textContent = r.status === "receiving" ? "calculating…" : rs(r.total) + (r.total_known ? "" : " +") + (r.discount ? " (set by shop)" : "");
+      $("otot").textContent = r.status === "receiving" ? "calculating…" : rs(r.total) + (r.total_known ? "" : " +") + (r.discount ? " (set by shop)" : r.bulk_discount ? ` (bulk discount ${rs(r.bulk_discount)})` : r.min_applied ? " (minimum charge)" : "");
       $("privPill").classList.toggle("hidden", !r.private);
       document.title = (r.status === "ready" ? "✅ Ready! " : `#${s.token} `) + (rates.name || "Print");
       $("payHint").textContent = r.total_known ? "Please pay at the counter." : "Some pages will be counted at the counter.";

@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import sender
+import ui_kit as ui
 
 F = "Segoe UI"
 C = {"blue": "#1a56db", "light": "#f5f7fb", "line": "#e5e7eb", "text": "#111827", "mut": "#6b7280",
@@ -37,9 +38,9 @@ def open_send(root, m, files=None):
     win = tk.Toplevel(root)
     _open["win"] = win
     win.title("PrintBridge - Print")
-    win.configure(bg="white")
+    win.configure(bg=ui.C["bg"])
     sh = win.winfo_screenheight()
-    win.geometry(f"600x{min(720, sh - 80)}+60+20")
+    win.geometry(f"680x{min(760, sh - 80)}+60+20")
     win.minsize(540, 560)
     targets = m.CFG.setdefault("targets", [])
     files_list = []
@@ -47,33 +48,31 @@ def open_send(root, m, files=None):
     state = {"busy": False, "printers_for": None}
 
     # ------------------------------------------------ header
-    head = tk.Frame(win, bg=C["blue"], padx=18, pady=12)
-    head.pack(fill="x")
-    tk.Label(head, text="Print files", font=(F, 17, "bold"), fg="white", bg=C["blue"]).pack(anchor="w")
-    tk.Label(head, text="Print on this computer, or on a printer connected to another computer over the internet",
-             font=(F, 9), fg="#dbeafe", bg=C["blue"]).pack(anchor="w")
+    ui.header(win, "Print files", "Print on this computer, or on a printer connected to another computer over the internet")
 
     # neeche ka Print button pehle pack (taaki chhoti screen par bhi hamesha dikhe)
-    foot = tk.Frame(win, bg="white", padx=18, pady=10)
+    foot = tk.Frame(win, bg=ui.C["bg"], padx=16, pady=12)
     foot.pack(side="bottom", fill="x")
-    go = tk.Button(foot, text="Print", font=(F, 13, "bold"), bg=C["blue"], fg="white", relief="flat", bd=0,
-                   activebackground="#1e40af", activeforeground="white", cursor="hand2", pady=9)
+    go = ui.Button(foot, "Print", None, size=12, pady=11)
     go.pack(fill="x")
-    log = tk.Listbox(foot, height=4, font=(F, 9), bd=1, relief="solid", highlightthickness=0, activestyle="none")
-    log.pack(fill="x", pady=(8, 0))
+    log = ui.listbox(foot, height=4)
+    log.pack(fill="x", pady=(10, 0))
 
-    body = tk.Frame(win, bg="white", padx=18, pady=8)
+    body = tk.Frame(win, bg=ui.C["bg"], padx=16, pady=12)
     body.pack(fill="both", expand=True)
 
     def section(text):
-        tk.Label(body, text=text, font=(F, 10, "bold"), fg=C["text"], bg="white").pack(anchor="w", pady=(8, 3))
+        cd = ui.card(body, pady=12)
+        cd.pack(fill="x", pady=(0, 10))
+        tk.Label(cd, text=text.upper(), font=(F, 8, "bold"), fg=C["mut"], bg="white").pack(anchor="w", pady=(0, 6))
+        return cd
 
     # ------------------------------------------------ 1. files
-    section("1. Files")
-    fr = tk.Frame(body, bg="white")
+    c_files = section("1. Files")
+    fr = tk.Frame(c_files, bg="white")
     fr.pack(fill="x")
-    lb = tk.Listbox(fr, height=4, font=(F, 10), bd=1, relief="solid", highlightthickness=0, selectmode="extended",
-                    activestyle="none")
+    lb = ui.listbox(fr, height=4, selectmode="extended")
+    lb.configure(font=(F, 10))
     lb.pack(side="left", fill="x", expand=True)
     fb = tk.Frame(fr, bg="white")
     fb.pack(side="left", padx=(8, 0), anchor="n")
@@ -119,24 +118,25 @@ def open_send(root, m, files=None):
         show_files()
 
     for t, cmd in [("+ Add files", pick), ("Remove", remove_sel), ("Clear all", lambda: (files_list.clear(), show_files()))]:
-        ttk.Button(fb, text=t, command=cmd, width=13).pack(pady=(0, 4))
+        ui.Button(fb, t, cmd, kind="primary" if t.startswith("+") else "secondary", size=9, bold=t.startswith("+"),
+                  width=120, pady=6).pack(pady=(0, 6))
 
     # ------------------------------------------------ 2. kahan
-    section("2. Choose a printer")
-    tr = tk.Frame(body, bg="white")
+    c_prn = section("2. Choose a printer")
+    tr = tk.Frame(c_prn, bg="white")
     tr.pack(fill="x")
-    tbox = ttk.Combobox(tr, state="readonly", width=40)
+    tbox = ttk.Combobox(tr, state="readonly", width=32)
     tbox.pack(side="left")
-    ttk.Button(tr, text="+ Add computer", command=lambda: pair_dialog()).pack(side="left", padx=(8, 0))
-    ttk.Button(tr, text="Remove", command=lambda: remove_target()).pack(side="left", padx=(6, 0))
-    tstat = tk.Label(body, font=(F, 9), bg="white", fg=C["mut"], anchor="w")
-    tstat.pack(fill="x", pady=(3, 0))
-    pr = tk.Frame(body, bg="white")
-    pr.pack(fill="x", pady=(4, 0))
-    tk.Label(pr, text="Printer:", font=(F, 10), bg="white").pack(side="left")
+    ui.Button(tr, "+ Add computer", lambda: pair_dialog(), kind="soft", size=9, pady=6).pack(side="left", padx=(8, 0))
+    ui.Button(tr, "Remove", lambda: remove_target(), kind="secondary", size=9, bold=False, pady=6).pack(side="left", padx=(6, 0))
+    tstat = tk.Label(c_prn, font=(F, 9), bg="white", fg=C["mut"], anchor="w")
+    tstat.pack(fill="x", pady=(4, 0))
+    pr = tk.Frame(c_prn, bg="white")
+    pr.pack(fill="x", pady=(6, 0))
+    tk.Label(pr, text="Printer", font=(F, 9), fg=C["mut"], bg="white").pack(side="left")
     pvar = tk.StringVar(win)
     win._vars = [pvar]   # Tk variable ko zinda rakho (warna dabba khaali dikhta hai)
-    pbox = ttk.Combobox(pr, textvariable=pvar, state="readonly", width=44)
+    pbox = ttk.Combobox(pr, textvariable=pvar, state="readonly", width=46)
     pbox.pack(side="left", padx=(6, 0))
 
     def choices():
@@ -204,7 +204,7 @@ def open_send(root, m, files=None):
     def pair_dialog(prefill=""):
         d = tk.Toplevel(win)
         d.title("Add computer")
-        d.configure(bg="white", padx=20, pady=14)
+        d.configure(bg="white", padx=22, pady=16)
         d.transient(win)
         d.grab_set()
         tk.Label(d, text="Open PrintBridge on the computer that the printer is connected to.\n"
@@ -219,7 +219,7 @@ def open_send(root, m, files=None):
         e_pin.grid(row=2, column=1, pady=4, sticky="w")
         info = tk.Label(d, text="", font=(F, 9), bg="white", fg=C["mut"], justify="left", wraplength=340)
         info.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        btn = ttk.Button(d, text="Connect")
+        btn = ui.Button(d, "Connect", None, pady=7)
         btn.grid(row=4, column=1, sticky="e", pady=(10, 0))
         e_id.focus_set()
         e_id.icursor("end")
@@ -267,8 +267,8 @@ def open_send(root, m, files=None):
     win._pair_dialog = pair_dialog
 
     # ------------------------------------------------ 3. settings
-    section("3. Settings")
-    sg = tk.Frame(body, bg="white")
+    c_set = section("3. Settings")
+    sg = tk.Frame(c_set, bg="white")
     sg.pack(fill="x")
     for i in range(4):
         sg.columnconfigure(i, weight=1 if i % 2 else 0)
@@ -277,7 +277,8 @@ def open_send(root, m, files=None):
         tk.Label(sg, text=t, font=(F, 9), fg=C["mut"], bg="white").grid(row=r, column=c, sticky="w", padx=(0 if c == 0 else 14, 6), pady=3)
 
     lbl(0, 0, "Copies")
-    copies = tk.Spinbox(sg, from_=1, to=50, width=6, font=(F, 10), justify="center")
+    copies = ttk.Spinbox(sg, from_=1, to=50, width=6, justify="center")
+    copies.set(1)
     copies.grid(row=0, column=1, sticky="w")
     lbl(0, 2, "Color")
     color = tk.StringVar(win, value="color")
@@ -285,7 +286,7 @@ def open_send(root, m, files=None):
     cf = tk.Frame(sg, bg="white")
     cf.grid(row=0, column=3, sticky="w")
     for t, v in [("Color", "color"), ("Black & white", "bw")]:
-        tk.Radiobutton(cf, text=t, variable=color, value=v, bg="white", activebackground="white", font=(F, 9)).pack(side="left")
+        ttk.Radiobutton(cf, text=t, variable=color, value=v).pack(side="left", padx=(0, 10))
     lbl(1, 0, "Pages")
     pages = ttk.Combobox(sg, values=list(PAGES), width=18)
     pages.set("All pages")

@@ -61,15 +61,31 @@ class ShopQueue:
             return 0.0
 
     def _recalc(self, o):
-        total = 0.0
+        total, sheets = 0.0, 0
         for f in o["files"]:
             if f.get("sheets") is None or f["status"] == "error":
                 f["price"] = None
             else:
                 f["price"] = round(f["sheets"] * f["copies"] * self.rate(f["color"]), 2)
                 total += f["price"]
-        o["calc_total"] = round(total, 2)
+                sheets += f["sheets"] * f["copies"]
         o["total_known"] = all(f.get("sheets") is not None or f["status"] == "error" for f in o["files"])
+        c = self.get_cfg()
+        o["bulk_discount"], o["min_applied"] = 0, False
+        try:   # thok (bulk) chhoot: N se zyada kaagaz par X% kam
+            after, pct = int(c.get("bulk_after") or 0), float(c.get("bulk_pct") or 0)
+            if after > 0 and 0 < pct < 100 and sheets > after:
+                o["bulk_discount"] = round(total * pct / 100, 2)
+                total -= o["bulk_discount"]
+        except (TypeError, ValueError):
+            pass
+        try:   # kam se kam rupaye har order
+            mn = float(c.get("min_charge") or 0)
+            if mn > 0 and 0 < total < mn and o["total_known"]:
+                total, o["min_applied"] = mn, True
+        except (TypeError, ValueError):
+            pass
+        o["calc_total"] = round(total, 2)
         o["total"] = o["amount_override"] if o.get("amount_override") is not None else o["calc_total"]
         if o.get("amount_override") is not None:
             o["total_known"] = True
@@ -100,8 +116,9 @@ class ShopQueue:
                 if o["status"] not in ("receiving", "waiting"):
                     raise pb.PrintError("Printing of this order has already started, so files can no longer be added. "
                                         "Please start a new order.")
-                if len(o["files"]) >= MAX_FILES_PER_ORDER:
-                    raise pb.PrintError(f"An order cannot contain more than {MAX_FILES_PER_ORDER} files")
+                mx = int(self.get_cfg().get("max_files") or MAX_FILES_PER_ORDER)
+                if len(o["files"]) >= mx:
+                    raise pb.PrintError(f"An order cannot contain more than {mx} files")
                 o["status"] = "receiving"
             opts = pb.clean_opts(opts)
             fid = f"{order_id[:6]}_{len(o['files'])}"
@@ -135,7 +152,9 @@ class ShopQueue:
             self._recalc(o)
             self._save()
         self.on_change("update", o)
-        if o["status"] == "waiting" and self.get_cfg().get("auto_print"):
+        c = self.get_cfg()
+        mode = c.get("auto_mode") or ("all" if c.get("auto_print") else "off")
+        if o["status"] == "waiting" and (mode == "all" or (mode == "bw" and all(f["color"] != "color" for f in o["files"]))):
             self.on_change("auto_print", o)
 
     def status(self, order_id):
@@ -148,6 +167,7 @@ class ShopQueue:
             return {"token": o["token"], "status": o["status"], "ahead": ahead, "customer": o["customer"],
                     "total": o["total"], "total_known": o["total_known"], "message": o["message"],
                     "private": o.get("private", False), "discount": o.get("amount_override") is not None,
+                    "bulk_discount": o.get("bulk_discount", 0), "min_applied": o.get("min_applied", False),
                     "files": [{"name": f["name"], "sheets": f["sheets"], "copies": f["copies"], "color": f["color"],
                                "price": f["price"], "status": f["status"], "message": f["message"]} for f in o["files"]]}
 
@@ -203,6 +223,11 @@ class ShopQueue:
             self._recalc(o)
             self._save()
         self.on_change("update", o)
+
+    def get_open(self, order_id):
+        """Chalu (abhi tak na chhapa) order - samay khatam hone ke baad bhi usme file jod sakte hain."""
+        o = self.orders.get(order_id) if isinstance(order_id, str) else None
+        return o if o and o["status"] in ("receiving", "waiting") else None
 
     def get(self, order_id):
         return self.orders.get(order_id)

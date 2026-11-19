@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "2.0"
+VERSION = "2.1"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -103,7 +103,13 @@ def load_config():
     cfg.setdefault("local_key", secrets.token_urlsafe(12))  # bina internet print ki chaabi (QR mein)
     cfg.setdefault("shop", {})
     for k, v in {"enabled": False, "name": "", "bw_rate": 2, "color_rate": 10, "auto_print": False,
-                 "message": "", "allow_private": True}.items():
+                 "message": "", "allow_private": True,
+                 # v2.1: shop owner ki aur settings
+                 "auto_mode": "all" if cfg["shop"].get("auto_print") else "off",   # off / all / bw (sirf B&W apne aap)
+                 "bw_printer": "", "color_printer": "",          # khaali = default printer
+                 "hours_on": False, "open_at": "09:00", "close_at": "21:00", "days": [0, 1, 2, 3, 4, 5, 6],
+                 "min_charge": 0, "bulk_after": 0, "bulk_pct": 0,
+                 "require_mobile": False, "sound": True, "max_files": 20}.items():
         cfg["shop"].setdefault(k, v)
     cfg.setdefault("rules", {})  # phone (hash) -> {"no_color": True/False, "daily_limit": kaagaz}  # naya phone judne se pehle laptop par "Allow?" poochho
     if not cfg.get("server_url"):
@@ -394,6 +400,50 @@ def shop_name():
     return CFG["shop"].get("name") or CFG["name"]
 
 
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _fmt_time(hhmm):
+    try:
+        h, m = map(int, hhmm.split(":"))
+        return datetime(2000, 1, 1, h, m).strftime("%I:%M %p").lstrip("0")
+    except Exception:
+        return hhmm
+
+
+def shop_hours_text():
+    s = CFG["shop"]
+    if not s.get("hours_on"):
+        return ""
+    days = s.get("days") or []
+    d = "Every day" if len(days) == 7 else ", ".join(DAY_NAMES[i] for i in sorted(days)) or "Closed all week"
+    return f"{d}, {_fmt_time(s.get('open_at', '09:00'))} – {_fmt_time(s.get('close_at', '21:00'))}"
+
+
+def shop_open_now():
+    """(khuli hai?, wajah). Shop band ho ya samay ke bahar ho to customer ko saaf sandesh."""
+    s = CFG["shop"]
+    if not s.get("enabled"):
+        return False, "This shop is not accepting online orders right now. Please ask at the counter."
+    if s.get("hours_on"):
+        now = datetime.now()
+        hm = now.strftime("%H:%M")
+        o, c = s.get("open_at", "09:00"), s.get("close_at", "21:00")
+        inside = (o <= hm < c) if o <= c else (hm >= o or hm < c)   # raat bhar khuli shop bhi
+        if now.weekday() not in (s.get("days") or []) or not inside:
+            return False, f"This shop is closed right now. Opening hours: {shop_hours_text()}."
+    return True, ""
+
+
+def shop_printer_for(color, fallback):
+    """Color file -> color printer, B&W -> B&W printer (shop settings mein chuna ho to)."""
+    names, default, _, _ = pb.list_printers()
+    want = CFG["shop"].get("color_printer" if color == "color" else "bw_printer") or ""
+    if want in names:
+        return want
+    return fallback if fallback in names else (CFG.get("printer") if CFG.get("printer") in names else default)
+
+
 def shop_link():
     b = server_base()
     return f"{b}/s/{CFG['device_id'].replace('PB-', '').replace('-', '')}" if b else ""
@@ -408,6 +458,7 @@ def shop_print(order_id, printer=None):
     emit(f"SHOP: printing order #{o['token']} ({o['customer']})")
 
     def one(path, prn, copies, opts, stats, f, order):
+        prn = shop_printer_for((opts or {}).get("color"), prn)
         with PRINT_LOCK:
             msg = pb.print_file(path, prn, copies, title=f"Shop #{order['token']} - {f['name']}", opts=opts, stats=stats)
         sheets = stats.get("sheets")
@@ -440,22 +491,28 @@ def valid_order_id(x):
 
 def rpc_shop_info(p):
     s = CFG["shop"]
-    if not s.get("enabled"):
-        return {"ok": False, "error": "This shop is not accepting online orders right now. Please ask at the counter."}
+    ok, why = shop_open_now()
+    if not ok:
+        return {"ok": False, "error": why}
     caps = {"duplex": False, "papers": []}
     try:
-        names, default, _, allcaps = pb.list_printers()
-        prn = CFG.get("printer") if CFG.get("printer") in names else default
-        caps = allcaps.get(prn, caps)
+        _, _, _, allcaps = pb.list_printers()
+        caps = allcaps.get(shop_printer_for("bw", None), caps)
     except Exception:
         pass
     return {"ok": True, "name": shop_name(), "bw_rate": s["bw_rate"], "color_rate": s["color_rate"],
-            "message": s.get("message", ""), "allow_private": s.get("allow_private", True), "caps": caps}
+            "message": s.get("message", ""), "allow_private": s.get("allow_private", True), "caps": caps,
+            "hours": shop_hours_text(), "min_charge": s.get("min_charge", 0), "bulk_after": s.get("bulk_after", 0),
+            "bulk_pct": s.get("bulk_pct", 0), "require_mobile": bool(s.get("require_mobile")),
+            "max_files": s.get("max_files", 20)}
 
 
 def rpc_shop_job(p):
-    if not CFG["shop"].get("enabled"):
-        return {"ok": False, "error": "This shop is not accepting online orders right now"}
+    ok, why = shop_open_now()
+    if not ok and not SHOP.get_open(p.get("order_id")):   # chalu order mein file jodna samay ke baad bhi theek
+        return {"ok": False, "error": why}
+    if CFG["shop"].get("require_mobile") and len("".join(ch for ch in str(p.get("mobile", "")) if ch.isdigit())) < 10:
+        return {"ok": False, "error": "Please enter your mobile number"}
     if not valid_order_id(p.get("order_id")):
         return {"ok": False, "error": "Invalid order"}
     name = str(p.get("filename", "file"))
@@ -930,14 +987,16 @@ def run_gui():
     from tkinter import messagebox, simpledialog, ttk
     from PIL import Image, ImageTk
 
+    import ui_kit as ui
     root = tk.Tk()
     root.title("PrintBridge")
+    ui.setup_styles(root)
     sh = root.winfo_screenheight()
-    compact = sh < 940            # chhoti screen (jaise 1366x768): QR aur history chhote
-    QR = 140 if compact else 200
-    root.geometry(f"460x{min(880, sh - 70)}+20+10")
-    root.minsize(400, 600)
-    root.configure(bg="white")
+    compact = sh < 940            # chhoti screen (jaise 1366x768): QR aur activity chhote
+    QR = 118 if compact else 150
+    root.geometry(f"480x{min(860, sh - 70)}+20+10")
+    root.minsize(440, 600)
+    root.configure(bg=ui.C["bg"])
     icon_path = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "icon.png")
     try:
         if os.path.exists(icon_path):
@@ -945,52 +1004,48 @@ def run_gui():
     except Exception:
         pass
     F = "Segoe UI"
-    BLUE = "#1a56db"
+    BLUE = ui.C["blue"]
+    C = ui.C
 
-    tk.Label(root, text="PrintBridge", font=(F, 20, "bold"), fg=BLUE, bg="white").pack(pady=(14, 0))
-    tk.Label(root, text=f"v{VERSION}", font=(F, 8), fg="#999", bg="white").pack()
-    status_lbl = tk.Label(root, font=(F, 10, "bold"), bg="white")
-    status_lbl.pack(pady=(2, 0))
+    # ---------------------------------------------------- header (phone app jaisa)
+    hdr, hright = ui.header(root, "PrintBridge", f"Version {VERSION}")
+    status_lbl = tk.Label(hright, font=ui.font(9, True), padx=12, pady=4, bg="white", fg=C["mut"], text="● Starting…")
+    status_lbl.pack()
 
-    tk.Label(root, text="Scan the QR code in the phone app, or enter the Computer ID and PIN",
-             font=(F, 10), fg="#444", bg="white").pack(pady=(10, 0))
-    box = tk.Frame(root, bg="#eef2ff", padx=14, pady=10)
-    box.pack(fill="x", padx=18, pady=(6, 0))
-    box.columnconfigure(0, weight=1)
-    box.columnconfigure(1, weight=1)
-    tk.Label(box, text="Computer ID", font=(F, 9), fg="#555", bg="#eef2ff").grid(row=0, column=0)
-    tk.Label(box, text="PIN", font=(F, 9), fg="#555", bg="#eef2ff").grid(row=0, column=1)
-    id_lbl = tk.Label(box, font=("Consolas", 20, "bold"), fg=BLUE, bg="#eef2ff")
-    id_lbl.grid(row=1, column=0)
-    pin_lbl = tk.Label(box, font=("Consolas", 20, "bold"), fg="#111", bg="#eef2ff")
-    pin_lbl.grid(row=1, column=1)
-    site_lbl = tk.Label(box, font=(F, 9), fg="#555", bg="#eef2ff")
-    site_lbl.grid(row=2, column=0, columnspan=2, pady=(4, 0))
+    body = tk.Frame(root, bg=C["bg"], padx=14, pady=12)
+    body.pack(fill="both", expand=True)
 
-    tk.Label(root, text="QR code", font=(F, 9), fg="#666", bg="white").pack(pady=(10, 2))
-    qr_lbl = tk.Label(root, bg="white")
-    qr_lbl.pack()
+    # ---------------------------------------------------- 1. phone jodna
+    c1 = ui.card(body)
+    c1.pack(fill="x")
+    ui.section(c1, "Connect a phone").grid(row=0, column=0, columnspan=2, sticky="w")
+    qr_lbl = tk.Label(c1, bg="white")
+    qr_lbl.grid(row=1, column=0, rowspan=5, sticky="nw", pady=(8, 0), padx=(0, 16))
+    ui.label(c1, "Computer ID", 9, color=C["mut"]).grid(row=1, column=1, sticky="w", pady=(10, 0))
+    id_lbl = tk.Label(c1, font=("Consolas", 19, "bold"), fg=BLUE, bg="white")
+    id_lbl.grid(row=2, column=1, sticky="w")
+    ui.label(c1, "PIN", 9, color=C["mut"]).grid(row=3, column=1, sticky="w", pady=(6, 0))
+    pinrow = tk.Frame(c1, bg="white")
+    pinrow.grid(row=4, column=1, sticky="w")
+    pin_lbl = tk.Label(pinrow, font=("Consolas", 19, "bold"), fg=C["text"], bg="white")
+    pin_lbl.pack(side="left")
+    site_lbl = ui.label(c1, "", 8, color=C["mut"], justify="left")
+    site_lbl.grid(row=5, column=1, sticky="sw", pady=(6, 0))
+    c1.columnconfigure(1, weight=1)
 
-    pf = tk.Frame(root, bg="white")
-    pf.pack(fill="x", padx=18, pady=(10, 0))
-    tk.Label(pf, text="Printer:", font=(F, 10), bg="white").pack(side="left")
-    printer_var = tk.StringVar()
-    printer_box = ttk.Combobox(pf, textvariable=printer_var, state="readonly", width=34)
-    printer_box.pack(side="left", padx=6)
+    # ---------------------------------------------------- 2. printer + print
+    c2 = ui.card(body)
+    c2.pack(fill="x", pady=(10, 0))
+    ui.section(c2, "Default printer").pack(anchor="w")
+    printer_var = tk.StringVar(root)
+    printer_box = ttk.Combobox(c2, textvariable=printer_var, state="readonly")
+    printer_box.pack(fill="x", pady=(6, 10))
 
     def open_send_win():
         import gui_send
         gui_send.open_send(root, M)
-    tk.Button(root, text="Print from this computer  (to this or another computer's printer)", command=open_send_win,
-              font=(F, 10, "bold"), bg=BLUE, fg="white", activebackground="#1e40af", activeforeground="white",
-              relief="flat", bd=0, cursor="hand2", pady=7).pack(fill="x", padx=18, pady=(10, 0))
-
-    phones_lbl = tk.Label(root, font=(F, 9), fg="#555", bg="white", anchor="w", justify="left", wraplength=400)
-    phones_lbl.pack(fill="x", padx=18, pady=(6, 0))
-
-    tk.Label(root, text="Print history", font=(F, 10, "bold"), bg="white").pack(anchor="w", padx=18, pady=(6, 0))
-    log_box = tk.Listbox(root, height=3 if compact else 6, font=(F, 9), bd=1, relief="solid")
-    log_box.pack(fill="both", expand=True, padx=18)
+    ui.Button(c2, "Print a file", open_send_win, size=11, pady=10).pack(fill="x")
+    ui.label(c2, "Print here, or send to a printer on another computer", 8, color=C["mut"]).pack(pady=(6, 0))
 
     def load_printers():
         try:
@@ -1014,14 +1069,13 @@ def run_gui():
         id_lbl.configure(text=CFG["device_id"])
         pin_lbl.configure(text=f"{CFG['pin'][:3]} {CFG['pin'][3:]}")
         host = server_base().split("://", 1)[-1]
-        site_lbl.configure(text=f"Phone app: {host}")
+        n = len(CFG["phones"])
+        site_lbl.configure(text=f"Phone app: {host}\n{n} connected {'device' if n == 1 else 'devices'}")
         url = pairing_url()
         img = ImageTk.PhotoImage(make_qr_image(url, QR) if url else Image.new("RGB", (QR, QR), "#eeeeee"))
         qr_lbl.configure(image=img)
         qr_lbl.image = img
-        n = len(CFG["phones"])
-        names = ", ".join(v["name"] for v in list(CFG["phones"].values())[-3:])
-        phones_lbl.configure(text=f"Connected devices: {n}" + (f"  ({names})" if n else ""))
+        devices_btn.configure(text=f"Devices ({n})")
 
     def ask_server():
         url = simpledialog.askstring("Server address", "PrintBridge server ka address:",
@@ -1054,21 +1108,20 @@ def run_gui():
             refresh()
             emit("All devices removed and a new PIN generated")
 
-    bf = tk.Frame(root, bg="white")
-    bf.pack(pady=(8, 2))
-    ttk.Button(bf, text="New PIN", command=new_pin_click).pack(side="left", padx=3)
-    ttk.Button(bf, text="Devices", command=lambda: gx.open_phones(root, M, refresh)).pack(side="left", padx=3)
-    ttk.Button(bf, text="Refresh", command=lambda: (refresh(), load_printers())).pack(side="left", padx=3)
-    ttk.Button(bf, text="Server", command=ask_server).pack(side="left", padx=3)
-    ttk.Button(bf, text="Update", command=lambda: threading.Thread(
-        target=update_now, args=(True,), daemon=True).start()).pack(side="left", padx=3)
+    ui.Button(pinrow, "New PIN", lambda: new_pin_click(), kind="ghost", size=9, padx=8, pady=3).pack(side="left", padx=(10, 0))
+
+    # ---------------------------------------------------- 3. tools
+    tools = tk.Frame(body, bg=C["bg"])
+    tools.pack(fill="x", pady=(10, 0))
+    for i in range(3):
+        tools.columnconfigure(i, weight=1, uniform="t")
 
     def offline_qr():
         win = tk.Toplevel(root)
         win.title("Offline printing")
         win.configure(bg="white")
         win.resizable(False, False)
-        tk.Label(win, text="Offline printing", font=(F, 15, "bold"), fg="#0f766e", bg="white").pack(pady=(14, 2))
+        ui.header(win, "Offline printing", "Print over your local Wi-Fi, without internet", color="#0f766e")
         if LOCAL.httpd is None:
             tk.Label(win, text=f"Offline printing is not available.\n{LOCAL.error or ''}", fg="#dc2626",
                      bg="white", font=(F, 10)).pack(padx=20, pady=10)
@@ -1086,15 +1139,38 @@ def run_gui():
                            "'Private networks' in Windows Firewall.",
                  font=(F, 8), fg="#888", bg="white").pack(pady=(6, 14))
 
-    bf2 = tk.Frame(root, bg="white")
-    bf2.pack(pady=(2, 0))
-    ttk.Button(bf2, text="Print shop", command=lambda: gx.open_shop(root, M)).pack(side="left", padx=3)
-    ttk.Button(bf2, text="Report", command=lambda: gx.open_report(root, M)).pack(side="left", padx=3)
-    ttk.Button(bf2, text="Offline QR", command=offline_qr).pack(side="left", padx=3)
-    ttk.Button(bf2, text="Remove all devices", command=remove_phones).pack(side="left", padx=3)
+    def more_menu():
+        mnu = tk.Menu(root, tearoff=0, font=ui.font(10))
+        mnu.add_command(label="Refresh printers", command=lambda: (refresh(), load_printers()))
+        mnu.add_command(label="Server address…", command=ask_server)
+        mnu.add_separator()
+        mnu.add_command(label="Remove all devices…", command=remove_phones)
+        b = more_btn
+        mnu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
-    opts = tk.Frame(root, bg="white")
-    opts.pack(pady=(4, 10))
+    def tool(r, c, text, cmd):
+        btn = ui.Button(tools, text, cmd, kind="secondary", size=9, bold=False, pady=9)
+        btn.grid(row=r, column=c, sticky="ew", padx=(0 if c == 0 else 6, 0), pady=(0 if r == 0 else 6, 0))
+        return btn
+    tool(0, 0, "Print shop", lambda: gx.open_shop(root, M))
+    devices_btn = tool(0, 1, "Devices", lambda: gx.open_phones(root, M, refresh))
+    tool(0, 2, "Report", lambda: gx.open_report(root, M))
+    tool(1, 0, "Offline QR", offline_qr)
+    tool(1, 1, "Check for updates", lambda: threading.Thread(target=update_now, args=(True,), daemon=True).start())
+    more_btn = tool(1, 2, "More…", more_menu)
+
+    opts = tk.Frame(body, bg=C["bg"])
+    opts.pack(side="bottom", fill="x", pady=(8, 0))   # hamesha dikhe (chhoti screen par bhi)
+
+    # ---------------------------------------------------- 4. activity
+    c3 = ui.card(body, pady=12)
+    c3.pack(fill="both", expand=True, pady=(10, 0))
+    ui.section(c3, "Activity").pack(anchor="w")
+    log_box = ui.listbox(c3, height=3 if compact else 5)
+    log_box.configure(highlightthickness=0)
+    log_box.pack(fill="both", expand=True, pady=(6, 0))
+    phones_lbl = tk.Label(c3)   # purane code ke liye (ab dikhaya nahi jaata)
+
     approve_var = tk.BooleanVar(value=CFG.get("ask_approval", True))
 
     def on_approve():
@@ -1102,7 +1178,7 @@ def run_gui():
             CFG["ask_approval"] = approve_var.get()
             save_config()
     ttk.Checkbutton(opts, text="Ask for approval before a new device connects", variable=approve_var,
-                    command=on_approve).pack(anchor="w")
+                    command=on_approve, style="Bg.TCheckbutton").pack(anchor="w")
 
     if sys.platform == "win32":
         auto_var = tk.BooleanVar(value=autostart_enabled())
@@ -1115,7 +1191,7 @@ def run_gui():
             except Exception as e:
                 messagebox.showerror("PrintBridge", str(e))
         ttk.Checkbutton(opts, text="Start automatically with Windows", variable=auto_var,
-                        command=on_auto).pack(anchor="w")
+                        command=on_auto, style="Bg.TCheckbutton").pack(anchor="w")
 
     colors = {"on": "#059669", "wait": "#d97706", "off": "#dc2626"}
     asking = {"busy": False}
@@ -1144,7 +1220,10 @@ def run_gui():
         while not EVENTS.empty():
             log_box.insert(0, EVENTS.get())
         kind, text = CLOUD.status
-        status_lbl.configure(text="● " + text, fg=colors[kind])
+        status_lbl.configure(text="● " + {"on": "Online", "wait": "Connecting…", "off": "Offline"}[kind], fg=colors[kind],
+                             bg={"on": "#dcfce7", "wait": "#fef3c7", "off": "#fee2e2"}[kind])
+        if hdr.sub_lbl is not None and hdr.sub_lbl.cget("text") != f"Version {VERSION}  •  {text}":
+            hdr.sub_lbl.configure(text=f"Version {VERSION}  •  {text}")
         if CLOUD.pin_changed:
             CLOUD.pin_changed = False
             refresh()
@@ -1156,7 +1235,8 @@ def run_gui():
         while not UI_EVENTS.empty():
             ev = UI_EVENTS.get()
             if isinstance(ev, tuple) and ev[0] == "shop_new":
-                root.bell()
+                if CFG["shop"].get("sound", True):
+                    root.bell()
                 try:
                     if tray["icon"] is not None:
                         tray["icon"].notify(f"New order #{ev[1]}: {ev[2]}", "PrintBridge - Print shop")
