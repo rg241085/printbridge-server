@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "1.4"
+VERSION = "1.5"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -358,6 +358,22 @@ def local_print(path, printer, copies, opts, phone, filename):
         raise
 
 
+def self_print(path, printer, copies, opts):
+    """Laptop par hi file chun kar isi laptop ke printer se print ('Print karein' window)."""
+    names, default, _, _ = pb.list_printers()
+    if printer not in names:
+        printer = CFG.get("printer") if CFG.get("printer") in names else default
+    if not printer:
+        raise pb.PrintError("Is laptop par koi printer nahi mila")
+    name = os.path.basename(path)
+    copies = max(1, min(int(copies), 50))
+    stats = {}
+    with PRINT_LOCK:
+        pb.print_file(path, printer, copies, title=f"PrintBridge - {name}", opts=pb.clean_opts(opts), stats=stats)
+    us.log("self", "self", "Isi laptop se", name, stats.get("sheets"), copies, stats.get("color", ""), printer)
+    emit(f"Print hua (laptop se): '{name}' -> {printer}")
+
+
 # ---------------------------------------------------------------- Print shop mode
 SHOP_DIRTY = threading.Event()   # window ko taaza karna hai
 
@@ -600,6 +616,29 @@ def desktop_shortcut(target, create=True):
         sc.Save()
     except Exception:
         log.exception("desktop shortcut")
+
+
+def sendto_shortcut(target):
+    """Windows Explorer: file par right-click -> 'Send to' -> 'PrintBridge se print'."""
+    if not (FROZEN and sys.platform == "win32"):
+        return
+    try:
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        ws = win32com.client.Dispatch("WScript.Shell")
+        lnk = os.path.join(ws.SpecialFolders("SendTo"), "PrintBridge se print.lnk")
+        sc = ws.CreateShortcut(lnk)
+        if os.path.exists(lnk) and os.path.normcase(sc.TargetPath or "") == os.path.normcase(target):
+            return
+        sc.TargetPath = target
+        sc.Arguments = "--send"
+        sc.WorkingDirectory = os.path.dirname(target)
+        sc.IconLocation = target + ",0"
+        sc.Description = "PrintBridge se print karein (isi ya doosre laptop ke printer par)"
+        sc.Save()
+    except Exception:
+        log.exception("sendto shortcut")
 
 
 def install_self():
@@ -939,6 +978,13 @@ def run_gui():
     printer_box = ttk.Combobox(pf, textvariable=printer_var, state="readonly", width=34)
     printer_box.pack(side="left", padx=6)
 
+    def open_send_win():
+        import gui_send
+        gui_send.open_send(root, M)
+    tk.Button(root, text="Laptop se print karein  (isi ya doosre laptop ke printer par)", command=open_send_win,
+              font=(F, 10, "bold"), bg=BLUE, fg="white", activebackground="#1e40af", activeforeground="white",
+              relief="flat", bd=0, cursor="hand2", pady=7).pack(fill="x", padx=18, pady=(10, 0))
+
     phones_lbl = tk.Label(root, font=(F, 9), fg="#555", bg="white", anchor="w", justify="left", wraplength=400)
     phones_lbl.pack(fill="x", padx=18, pady=(6, 0))
 
@@ -1117,6 +1163,11 @@ def run_gui():
                 except Exception:
                     pass
                 continue
+            if isinstance(ev, tuple) and ev[0] == "send":
+                show_window()
+                import gui_send
+                gui_send.open_send(root, M, ev[1])
+                continue
             if isinstance(ev, tuple) and ev[0] == "error":
                 messagebox.showerror("PrintBridge", ev[1], parent=root)
                 continue
@@ -1138,6 +1189,7 @@ def run_gui():
             img = Image.open(icon_path) if os.path.exists(icon_path) else Image.new("RGB", (64, 64), BLUE)
             menu = pystray.Menu(
                 pystray.MenuItem("PrintBridge kholiye", lambda: UI_EVENTS.put("show"), default=True),
+                pystray.MenuItem("Print karein (file chuniye)", lambda: UI_EVENTS.put(("send", []))),
                 pystray.MenuItem("PrintBridge band karein", lambda: UI_EVENTS.put("quit")))
             icon = pystray.Icon("PrintBridge", img, "PrintBridge: mobile se print (chal raha hai)", menu)
 
@@ -1234,7 +1286,7 @@ def run_console():
         pass
 
 
-LOCK_PORT = 47651
+LOCK_PORT = int(os.environ.get("PRINTBRIDGE_LOCK_PORT", "47651"))
 
 
 def single_instance():
@@ -1252,7 +1304,16 @@ def single_instance():
                 c, _ = s.accept()
                 with c:
                     c.settimeout(2)
-                    if c.recv(16).startswith(b"show"):
+                    data = b""
+                    while len(data) < 256 * 1024:
+                        chunk = c.recv(65536)
+                        if not chunk:
+                            break
+                        data += chunk
+                    if data.startswith(b"send\n"):   # doosri baar file ke saath khola (Send to / icon par file)
+                        paths = [x for x in data[5:].decode("utf-8", "replace").split("\n") if x.strip()]
+                        UI_EVENTS.put(("send", paths))
+                    elif data.startswith(b"show"):
                         UI_EVENTS.put("show")
             except Exception:
                 time.sleep(0.5)
@@ -1260,13 +1321,18 @@ def single_instance():
     return s
 
 
-def show_running_instance():
+def show_running_instance(files=None):
     try:
         with socket.create_connection(("127.0.0.1", LOCK_PORT), timeout=2) as c:
-            c.sendall(b"show")
+            c.sendall(("send\n" + "\n".join(files)).encode("utf-8") if files else b"show")
         return True
     except OSError:
         return False
+
+
+def files_from_args():
+    """'Send to' ya exe ke icon par file chhodne se aayi files."""
+    return [os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("--") and os.path.isfile(a)]
 
 
 def main():
@@ -1284,7 +1350,7 @@ def main():
             if lock:
                 break
     if not lock:
-        if "--nogui" not in sys.argv and show_running_instance():
+        if "--nogui" not in sys.argv and show_running_instance(files_from_args()):
             return  # pehle se chal raha hai: uski window saamne aa gayi
         msg = "PrintBridge pehle se chal raha hai."
         if "--nogui" in sys.argv:
@@ -1304,6 +1370,12 @@ def main():
     CLOUD.start()
     threading.Thread(target=cleanup_loop, daemon=True).start()
     threading.Thread(target=update_loop, daemon=True).start()
+    if CFG.get("installed_exe") and os.path.exists(CFG["installed_exe"]):
+        threading.Thread(target=sendto_shortcut, args=(CFG["installed_exe"],), daemon=True).start()
+    elif FROZEN:
+        threading.Thread(target=sendto_shortcut, args=(sys.executable,), daemon=True).start()
+    if files_from_args():
+        UI_EVENTS.put(("send", files_from_args()))
     if "--nogui" in sys.argv:
         run_console()
     else:

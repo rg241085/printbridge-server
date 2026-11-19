@@ -174,9 +174,9 @@ def open_shop(root, m):
     style.map("Shop.Treeview", background=[("selected", "#c4b5fd")], foreground=[("selected", C["text"])])
     frame = tk.Frame(win, bg="white", highlightbackground=C["line"], highlightthickness=1)
     frame.pack(fill="both", expand=True, padx=14, pady=8)
-    cols = ("token", "naam", "files", "kaagaz", "rang", "rs", "status", "note")
-    heads = ("Token", "Customer", "Files", "Kaagaz", "Rang", "Rupaye", "Status", "Customer ka sandesh")
-    widths = (60, 150, 220, 70, 65, 80, 140, 190)
+    cols = ("token", "naam", "files", "kaagaz", "rang", "rs", "status", "note", "act")
+    heads = ("Token", "Customer", "Files", "Kaagaz", "Rang", "Rupaye", "Status", "Sandesh", "Kaam")
+    widths = (60, 140, 190, 62, 58, 76, 130, 130, 176)
     box = _check_images(win)
     win._box = box  # tasveerein yaad rakho (warna Tk bhool jaata hai)
     tv = ttk.Treeview(frame, columns=cols, show="tree headings", selectmode="browse", style="Shop.Treeview")
@@ -184,10 +184,10 @@ def open_shop(root, m):
     tv.heading("#0", image=box[False])
     for c, h, w in zip(cols, heads, widths):
         tv.heading(c, text=h)
-        tv.column(c, width=w, minwidth=30, stretch=c in ("files", "note"),
+        tv.column(c, width=w, minwidth=176 if c == "act" else 30, stretch=c in ("files", "note"),
                   anchor="w" if c in ("naam", "files", "status", "note") else "center")
     sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
-    tv.configure(yscrollcommand=sb.set)
+    tv.configure(yscrollcommand=lambda a, b: (sb.set(a, b), win.after_idle(place_row_buttons)))
     tv.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
     tv.tag_configure("ready", background=C["green_bg"])
@@ -210,7 +210,7 @@ def open_shop(root, m):
                 f"{sum(known)}{'+?' if unknown else ''}", "Mix" if len(colors) > 1 else ("Color" if "color" in colors else "B&W"),
                 _money(o["total"]) + ("+?" if not o.get("total_known") else "") + (" *" if o.get("amount_override") is not None else ""),
                 STATUS.get(o["status"], o["status"]) + (" ⚠" if any(f["status"] == "error" for f in o["files"]) else ""),
-                o.get("note", ""))
+                o.get("note", ""), "")
 
     def visible_orders():
         q = search.get().strip().lower().lstrip("#")
@@ -228,6 +228,91 @@ def open_shop(root, m):
             out.append(o)
         return out
 
+    # ---------------------------------------------------- har line ke aage Print / Cancel button
+    # (Treeview ke andar button nahi lagte, isliye asli button "Kaam" column ke upar chipka dete hain)
+    row_btns = {}   # order id -> (frame, kind)
+    ROW_BG = {"ready": C["green_bg"], "printing": C["yellow_bg"]}
+
+    def mini(parent, text, cmd, bg, fg):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
+                         relief="flat", bd=0, cursor="hand2", font=(F, 9, "bold"), padx=8, pady=0)
+
+    def row_kind(o):
+        if o["status"] in ("receiving", "printing"):
+            return o["status"]
+        return "ready" if o["status"] == "ready" else "waiting"
+
+    def make_row_buttons(o):
+        kind = row_kind(o)
+        fr = tk.Frame(tv, bg=ROW_BG.get(o["status"], "white"))
+        oid = o["id"]
+        if kind == "waiting":
+            mini(fr, "Print", lambda: print_one(oid), C["purple2"], "white").pack(side="left", fill="y", padx=(0, 4))
+            mini(fr, "Cancel", lambda: cancel_one(oid), "#fee2e2", C["red"]).pack(side="left", fill="y")
+        elif kind == "ready":
+            mini(fr, "Dobara", lambda: print_one(oid), "#ede9fe", C["purple2"]).pack(side="left", fill="y", padx=(0, 4))
+            mini(fr, "De diya", lambda: done_one(oid), C["green"], "white").pack(side="left", fill="y")
+        else:
+            tk.Label(fr, text="file aa rahi hai…" if kind == "receiving" else "chhap raha hai…", font=(F, 9),
+                     fg=C["mut"], bg=fr["bg"]).pack(side="left")
+        return fr, kind
+
+    def place_row_buttons():
+        if not win.winfo_exists():
+            return
+        for iid in tv.get_children():
+            ent = row_btns.get(iid)
+            if not ent:
+                continue
+            bb = tv.bbox(iid, "act")
+            if not bb:
+                ent[0].place_forget()
+                continue
+            x, y, w, h = bb
+            ent[0].place(x=x + 6, y=y + 4, width=max(10, w - 12), height=max(10, h - 8))
+
+    def sync_row_buttons(orders):
+        want = {o["id"]: o for o in orders}
+        for oid in list(row_btns):
+            o = want.get(oid)
+            if not o or row_btns[oid][1] != row_kind(o) or row_btns[oid][0]["bg"] != ROW_BG.get(o["status"], "white"):
+                row_btns.pop(oid)[0].destroy()
+        for oid, o in want.items():
+            if oid not in row_btns:
+                row_btns[oid] = make_row_buttons(o)
+        win.after_idle(place_row_buttons)
+
+    def print_one(oid):
+        o = m.SHOP.get(oid)
+        if not o:
+            return
+        if o["status"] in ("receiving", "printing"):
+            return
+        if o["status"] == "ready" and not messagebox.askyesno(
+                "Print shop", f"Order #{o['token']} ({o['customer']}) pehle chhap chuka hai. Dobara chhaapein?", parent=win):
+            return
+        checked.discard(oid)
+
+        def run():
+            ok, err = m.shop_print(oid)
+            if not ok:
+                m.UI_EVENTS.put(("error", f"#{o['token']} {o['customer']} print nahi hua:\n{err}"))
+        threading.Thread(target=run, daemon=True).start()
+
+    def cancel_one(oid):
+        o = m.SHOP.get(oid)
+        if o and messagebox.askyesno("Order cancel", f"Order #{o['token']} ({o['customer']}) cancel karein?\n\n"
+                                     "Customer ko 'Shop ne order nahi liya' dikhega.", parent=win):
+            m.SHOP.set_status(oid, "rejected", "Shop ne order cancel kiya. Counter par baat kijiye.")
+            checked.discard(oid)
+
+    def done_one(oid):
+        m.shop_done(oid)
+        checked.discard(oid)
+
+    tv.bind("<Configure>", lambda e: win.after_idle(place_row_buttons))
+    tv.bind("<ButtonRelease-1>", lambda e: win.after_idle(place_row_buttons), add="+")
+
     def refresh():
         sel = tv.selection()
         tv.delete(*tv.get_children())
@@ -240,6 +325,7 @@ def open_shop(root, m):
             tv.insert("", "end", iid=o["id"], text="", image=box[o["id"] in checked], values=row_vals(o), tags=tags)
         if sel and tv.exists(sel[0]):
             tv.selection_set(sel[0])
+        sync_row_buttons(orders)
         tv.heading("#0", image=box[bool(orders) and all(o["id"] in checked for o in orders)])
         if orders:
             empty.place_forget()
@@ -251,8 +337,9 @@ def open_shop(root, m):
         stat["pages"].configure(text=str(sum(d["pages"] for d in today)))
         stat["money"].configure(text=f"₹{sum(d['amount'] for d in today):g}")
         n = len(checked)
-        sel_lbl.configure(text=f"{n} order chune" if n else
-                          "Order ke aage wale chhote dabbe par click karke chuniye (sabse upar wala dabba = sab chuniye)")
+        sel_lbl.configure(text=f"{n} order chune - neeche wale button sab chune hue orders par chalenge" if n else
+                          "Ek order: line ke aage 'Print' / 'Cancel' dabaiye.   Kai order ek saath: aage ke dabbe chuniye, "
+                          "phir neeche 'Print'.")
         print_btn.configure(text=f"Print ({n})" if n > 1 else "Print")
         if len(allo) > state["last_count"]:  # naya order: header thoda chamke
             title.configure(fg="#fde68a")
@@ -455,7 +542,7 @@ def open_shop(root, m):
         tk.Button(hb, text=t, command=cmd, bg="#8b5cf6", fg="white", activebackground="#a78bfa", activeforeground="white",
                   relief="flat", bd=0, cursor="hand2", font=(F, 9), padx=10, pady=3).pack(side="left", padx=(6, 0))
 
-    tv.bind("<Double-1>", lambda e: (tv.identify_column(e.x) != "#0") and do_print())
+    tv.bind("<Double-1>", lambda e: (tv.identify_column(e.x) not in ("#0", f"#{len(cols)}")) and do_print())
 
     def tick():
         if not win.winfo_exists():
