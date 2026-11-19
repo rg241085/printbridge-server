@@ -45,11 +45,11 @@ def _call(base, path, method="GET", data=None, headers=None, timeout=60):
             msg = d.get("detail") or d.get("error")
         except Exception:
             pass
-        err = SendError(msg or f"Server ne mana kar diya ({e.code})")
+        err = SendError(msg or f"The server rejected the request ({e.code})")
         err.code = e.code
         raise err
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise SendError("Server tak nahi pahunch paaye. Internet check kijiye.")
+        raise SendError("Cannot reach the server. Check your internet connection.")
 
 
 def device(base, dev_id):
@@ -62,7 +62,7 @@ def pair(base, dev_id, pin, my_name):
     body = json.dumps({"id": dev_id, "pin": re.sub(r"\D", "", str(pin)), "phone": my_name[:40]}).encode()
     res = _call(base, "/api/pair", "POST", body, {"Content-Type": "application/json"}, timeout=95)
     if not res.get("token"):
-        raise SendError("Jod nahi paaye")
+        raise SendError("Could not connect")
     return {"id": res.get("id", dev_id), "name": res.get("name") or dev_id, "token": res["token"], "added": time.time()}
 
 
@@ -107,7 +107,7 @@ def wait_job(base, job_id, on_update=None, timeout=600):
             st = job_status(base, job_id)
         except SendError as e:
             if getattr(e, "code", 0) == 404:
-                return "done", "Print ho gaya"   # server ne job saaf kar diya = ho chuka
+                return "done", "Printed"   # server ne job saaf kar diya = ho chuka
             time.sleep(2)
             continue
         cur = (st.get("status"), st.get("message"))
@@ -117,4 +117,4 @@ def wait_job(base, job_id, on_update=None, timeout=600):
         if cur[0] in ("done", "error", "cancelled"):
             return cur
         time.sleep(1.5)
-    return "error", "Bahut der ho gayi, doosre laptop par check kijiye"
+    return "error", "Timed out. Please check the other computer."

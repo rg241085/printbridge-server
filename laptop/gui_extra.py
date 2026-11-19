@@ -38,7 +38,7 @@ def _open_file(path):
         else:
             subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
-        messagebox.showerror("PrintBridge", f"File khul nahi paayi: {e}")
+        messagebox.showerror("PrintBridge", f"Could not open the file: {e}")
 
 
 def _money(v):
@@ -46,8 +46,8 @@ def _money(v):
 
 
 # =================================================================== PRINT SHOP (dashboard)
-STATUS = {"receiving": "File aa rahi…", "waiting": "Line mein", "printing": "Print ho raha…",
-          "ready": "Taiyaar - dena hai", "done": "De diya", "rejected": "Hataya", "cancelled": "Cancel"}
+STATUS = {"receiving": "Receiving…", "waiting": "In queue", "printing": "Printing…",
+          "ready": "Ready for pickup", "done": "Collected", "rejected": "Declined", "cancelled": "Cancelled"}
 C = {"purple": "#6d28d9", "purple2": "#7c3aed", "light": "#f5f3ff", "line": "#ddd6fe", "text": "#1f2937",
      "mut": "#6b7280", "green": "#059669", "green_bg": "#dcfce7", "yellow_bg": "#fef9c3", "red": "#dc2626",
      "white": "#ffffff", "blue_bg": "#eff6ff"}
@@ -117,21 +117,21 @@ def open_shop(root, m):
 
     def refresh_head():
         title.configure(text=m.shop_name())
-        sub.configure(text=f"B&W ₹{S['bw_rate']:g} / kaagaz   •   Color ₹{S['color_rate']:g} / kaagaz   •   "
-                           f"Customer link: {m.shop_link() or '(server set nahi)'}")
+        sub.configure(text=f"B&W ₹{S['bw_rate']:g} / sheet   •   Color ₹{S['color_rate']:g} / sheet   •   "
+                           f"Customer link: {m.shop_link() or '(server not set)'}")
         if S.get("enabled"):
-            state_btn.configure(text="●  Shop KHULI hai (order aa rahe hain)", bg="#dcfce7", fg="#065f46",
+            state_btn.configure(text="●  Shop OPEN — accepting orders", bg="#dcfce7", fg="#065f46",
                                 activebackground="#dcfce7")
         else:
-            state_btn.configure(text="●  Shop BAND hai (dabakar kholiye)", bg="#fee2e2", fg="#991b1b",
+            state_btn.configure(text="●  Shop CLOSED — click to open", bg="#fee2e2", fg="#991b1b",
                                 activebackground="#fee2e2")
 
     # ---------------------------------------------------- stat cards
     cards = tk.Frame(win, bg=C["light"], padx=14, pady=10)
     cards.pack(fill="x")
     stat = {}
-    for i, (k, label, color) in enumerate([("wait", "Line mein", C["purple2"]), ("ready", "Taiyaar - dena hai", C["green"]),
-                                           ("pages", "Aaj ke kaagaz", "#2563eb"), ("money", "Aaj ki kamai", "#b45309")]):
+    for i, (k, label, color) in enumerate([("wait", "In queue", C["purple2"]), ("ready", "Ready for pickup", C["green"]),
+                                           ("pages", "Sheets today", "#2563eb"), ("money", "Revenue today", "#b45309")]):
         f = tk.Frame(cards, bg="white", padx=16, pady=8, highlightbackground=C["line"], highlightthickness=1)
         f.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 10, 0))
         cards.columnconfigure(i, weight=1)
@@ -152,16 +152,16 @@ def open_shop(root, m):
                         activebackground=C["purple2"] if on else "white")
         refresh()
 
-    for k, t in [("all", "Sab"), ("waiting", "Line mein"), ("ready", "Taiyaar"), ("private", "Private")]:
+    for k, t in [("all", "All"), ("waiting", "In queue"), ("ready", "Ready"), ("private", "Private")]:
         fbtn[k] = tk.Button(bar, text=t, command=lambda k=k: set_filter(k), relief="flat", bd=0, cursor="hand2",
                             font=(F, 10), padx=14, pady=4, highlightthickness=1, highlightbackground=C["line"])
         fbtn[k].pack(side="left", padx=(0, 6))
     search = tk.StringVar()
-    tk.Label(bar, text="Dhoondhiye:", font=(F, 9), fg=C["mut"], bg=C["light"]).pack(side="left", padx=(18, 4))
+    tk.Label(bar, text="Search:", font=(F, 9), fg=C["mut"], bg=C["light"]).pack(side="left", padx=(18, 4))
     se = ttk.Entry(bar, textvariable=search, width=22)
     se.pack(side="left")
     search.trace_add("write", lambda *a: refresh())
-    auto_cb = tk.Checkbutton(bar, text="Order aate hi apne aap print", variable=auto_var, command=save_shop,
+    auto_cb = tk.Checkbutton(bar, text="Print new orders automatically", variable=auto_var, command=save_shop,
                              bg=C["light"], activebackground=C["light"], font=(F, 9), fg=C["mut"])
     auto_cb.pack(side="right")
 
@@ -175,8 +175,8 @@ def open_shop(root, m):
     frame = tk.Frame(win, bg="white", highlightbackground=C["line"], highlightthickness=1)
     frame.pack(fill="both", expand=True, padx=14, pady=8)
     cols = ("token", "naam", "files", "kaagaz", "rang", "rs", "status", "note", "act")
-    heads = ("Token", "Customer", "Files", "Kaagaz", "Rang", "Rupaye", "Status", "Sandesh", "Kaam")
-    widths = (60, 140, 190, 62, 58, 76, 130, 130, 176)
+    heads = ("Token", "Customer", "Files", "Sheets", "Color", "Amount", "Status", "Note", "Actions")
+    widths = (60, 140, 180, 62, 58, 76, 130, 120, 196)
     box = _check_images(win)
     win._box = box  # tasveerein yaad rakho (warna Tk bhool jaata hai)
     tv = ttk.Treeview(frame, columns=cols, show="tree headings", selectmode="browse", style="Shop.Treeview")
@@ -184,7 +184,7 @@ def open_shop(root, m):
     tv.heading("#0", image=box[False])
     for c, h, w in zip(cols, heads, widths):
         tv.heading(c, text=h)
-        tv.column(c, width=w, minwidth=176 if c == "act" else 30, stretch=c in ("files", "note"),
+        tv.column(c, width=w, minwidth=196 if c == "act" else 30, stretch=c in ("files", "note"),
                   anchor="w" if c in ("naam", "files", "status", "note") else "center")
     sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
     tv.configure(yscrollcommand=lambda a, b: (sb.set(a, b), win.after_idle(place_row_buttons)))
@@ -195,14 +195,14 @@ def open_shop(root, m):
     tv.tag_configure("receiving", foreground=C["mut"])
     tv.tag_configure("checked", background="#ede9fe")
     tv.tag_configure("private", foreground="#5b21b6")
-    empty = tk.Label(frame, text="Abhi koi order nahi.\nCustomer counter ka QR scan karke file bhejega to yahan dikhega.",
+    empty = tk.Label(frame, text="No orders yet.\nOrders appear here when customers scan your counter QR code and send files.",
                      font=(F, 11), fg=C["mut"], bg="white", justify="center")
 
     def row_vals(o):
         known = [f["sheets"] * f["copies"] for f in o["files"] if f.get("sheets") is not None]
         unknown = any(f.get("sheets") is None and f["status"] != "error" for f in o["files"])
         colors = {f["color"] for f in o["files"]}
-        names = (f"[Private] {len(o['files'])} file" if o.get("private")
+        names = (f"[Private] {len(o['files'])} {'file' if len(o['files']) == 1 else 'files'}" if o.get("private")
                  else ", ".join(f["name"] for f in o["files"]))
         cust = o["customer"] + (f" ({o['mobile']})" if o.get("mobile") else "")
         return (f"#{o['token']}", cust,
@@ -250,10 +250,10 @@ def open_shop(root, m):
             mini(fr, "Print", lambda: print_one(oid), C["purple2"], "white").pack(side="left", fill="y", padx=(0, 4))
             mini(fr, "Cancel", lambda: cancel_one(oid), "#fee2e2", C["red"]).pack(side="left", fill="y")
         elif kind == "ready":
-            mini(fr, "Dobara", lambda: print_one(oid), "#ede9fe", C["purple2"]).pack(side="left", fill="y", padx=(0, 4))
-            mini(fr, "De diya", lambda: done_one(oid), C["green"], "white").pack(side="left", fill="y")
+            mini(fr, "Reprint", lambda: print_one(oid), "#ede9fe", C["purple2"]).pack(side="left", fill="y", padx=(0, 4))
+            mini(fr, "Collected", lambda: done_one(oid), C["green"], "white").pack(side="left", fill="y")
         else:
-            tk.Label(fr, text="file aa rahi hai…" if kind == "receiving" else "chhap raha hai…", font=(F, 9),
+            tk.Label(fr, text="receiving…" if kind == "receiving" else "printing…", font=(F, 9),
                      fg=C["mut"], bg=fr["bg"]).pack(side="left")
         return fr, kind
 
@@ -289,21 +289,21 @@ def open_shop(root, m):
         if o["status"] in ("receiving", "printing"):
             return
         if o["status"] == "ready" and not messagebox.askyesno(
-                "Print shop", f"Order #{o['token']} ({o['customer']}) pehle chhap chuka hai. Dobara chhaapein?", parent=win):
+                "Print shop", f"Order #{o['token']} ({o['customer']}) has already been printed. Print it again?", parent=win):
             return
         checked.discard(oid)
 
         def run():
             ok, err = m.shop_print(oid)
             if not ok:
-                m.UI_EVENTS.put(("error", f"#{o['token']} {o['customer']} print nahi hua:\n{err}"))
+                m.UI_EVENTS.put(("error", f"#{o['token']} {o['customer']} could not be printed:\n{err}"))
         threading.Thread(target=run, daemon=True).start()
 
     def cancel_one(oid):
         o = m.SHOP.get(oid)
-        if o and messagebox.askyesno("Order cancel", f"Order #{o['token']} ({o['customer']}) cancel karein?\n\n"
-                                     "Customer ko 'Shop ne order nahi liya' dikhega.", parent=win):
-            m.SHOP.set_status(oid, "rejected", "Shop ne order cancel kiya. Counter par baat kijiye.")
+        if o and messagebox.askyesno("Cancel order", f"Cancel order #{o['token']} ({o['customer']})?\n\n"
+                                     "The customer will see that the shop declined the order.", parent=win):
+            m.SHOP.set_status(oid, "rejected", "The shop cancelled this order. Please ask at the counter.")
             checked.discard(oid)
 
     def done_one(oid):
@@ -337,9 +337,9 @@ def open_shop(root, m):
         stat["pages"].configure(text=str(sum(d["pages"] for d in today)))
         stat["money"].configure(text=f"₹{sum(d['amount'] for d in today):g}")
         n = len(checked)
-        sel_lbl.configure(text=f"{n} order chune - neeche wale button sab chune hue orders par chalenge" if n else
-                          "Ek order: line ke aage 'Print' / 'Cancel' dabaiye.   Kai order ek saath: aage ke dabbe chuniye, "
-                          "phir neeche 'Print'.")
+        sel_lbl.configure(text=f"{n} {'order' if n == 1 else 'orders'} selected — the buttons below apply to all selected orders" if n else
+                          "Single order: use Print / Cancel in its row.   Multiple orders: tick the boxes, "
+                          "then click Print below.")
         print_btn.configure(text=f"Print ({n})" if n > 1 else "Print")
         if len(allo) > state["last_count"]:  # naya order: header thoda chamke
             title.configure(fg="#fde68a")
@@ -368,8 +368,8 @@ def open_shop(root, m):
         ids = [i for i in tv.get_children() if i in checked] or list(tv.selection())
         orders = [m.SHOP.get(i) for i in ids if m.SHOP.get(i)]
         if not orders:
-            messagebox.showinfo("Print shop", "Pehle order chuniye: order ke aage wale dabbe par click kijiye "
-                                              "(ya sabse upar wala dabba dabakar sab chuniye).", parent=win)
+            messagebox.showinfo("Print shop", "Select an order first by ticking the box next to it "
+                                              "(or tick the box in the header to select all).", parent=win)
         return orders
 
     # ---------------------------------------------------- actions
@@ -381,15 +381,15 @@ def open_shop(root, m):
         again = [o for o in orders if o["status"] == "ready"]
         todo = [o for o in orders if o["status"] in ("waiting", "ready")]
         if busy and not todo:
-            messagebox.showinfo("Print shop", "Chune hue order abhi print nahi ho sakte (file aa rahi hai ya print chal raha hai).", parent=win)
+            messagebox.showinfo("Print shop", "The selected orders cannot be printed right now (files are still arriving or printing is in progress).", parent=win)
             return
-        if again and not messagebox.askyesno("Print shop", f"{len(again)} order pehle chhap chuke hain. Unhe dobara chhaapein?", parent=win):
+        if again and not messagebox.askyesno("Print shop", f"{len(again)} of the selected orders have already been printed. Print them again?", parent=win):
             todo = [o for o in todo if o["status"] != "ready"]
         if not todo:
             return
         if len(todo) > 1 and not messagebox.askyesno(
-                "Print shop", f"{len(todo)} order ek-ek karke print honge:\n" +
-                ", ".join(f"#{o['token']} {o['customer']}" for o in todo) + "\n\nShuru karein?", parent=win):
+                "Print shop", f"{len(todo)} orders will be printed one after another:\n" +
+                ", ".join(f"#{o['token']} {o['customer']}" for o in todo) + "\n\nStart printing?", parent=win):
             return
         ids = [o["id"] for o in todo]
         checked.difference_update(ids)
@@ -404,7 +404,7 @@ def open_shop(root, m):
                 if not ok:
                     fails.append(f"#{o['token']} {o['customer']}: {err}")
             if fails:
-                m.UI_EVENTS.put(("error", "Ye order print nahi hue:\n" + "\n".join(fails)))
+                m.UI_EVENTS.put(("error", "These orders could not be printed:\n" + "\n".join(fails)))
         threading.Thread(target=run, daemon=True).start()
         refresh()
 
@@ -413,8 +413,8 @@ def open_shop(root, m):
         if not orders:
             return
         if any(o.get("private") for o in orders):
-            messagebox.showinfo("Print shop", "Private order ki file nahi khul sakti. Customer ne dikhane ki permission nahi di.\n"
-                                              "Aap ise sirf print kar sakte hain.", parent=win)
+            messagebox.showinfo("Print shop", "Files in private orders cannot be opened because the customer did not allow viewing.\n"
+                                              "You can only print them.", parent=win)
         for o in [o for o in orders if not o.get("private")][:3]:
             for f in o["files"][:5]:
                 if os.path.exists(f["path"]):
@@ -424,7 +424,7 @@ def open_shop(root, m):
         orders = targets()
         if not orders:
             return
-        if len(orders) > 1 and not messagebox.askyesno("Print shop", f"{len(orders)} order 'De diya' karein?", parent=win):
+        if len(orders) > 1 and not messagebox.askyesno("Print shop", f"Mark {len(orders)} orders as collected?", parent=win):
             return
         for o in orders:
             m.shop_done(o["id"])
@@ -433,30 +433,30 @@ def open_shop(root, m):
     def do_remove():
         orders = targets()
         if orders and messagebox.askyesno(
-                "Print shop", "Ye order hata dein?\n" + ", ".join(f"#{o['token']} {o['customer']}" for o in orders) +
-                "\n\nCustomer ko 'Shop ne order nahi liya' dikhega.", parent=win):
+                "Print shop", "Decline these orders?\n" + ", ".join(f"#{o['token']} {o['customer']}" for o in orders) +
+                "\n\nThe customer will see that the shop declined the order.", parent=win):
             for o in orders:
-                m.SHOP.set_status(o["id"], "rejected", "Shop ne order hata diya. Counter par baat kijiye.")
+                m.SHOP.set_status(o["id"], "rejected", "The shop declined this order. Please ask at the counter.")
                 checked.discard(o["id"])
 
     def do_move(how):
         s_ = tv.selection()
         if not s_:
-            messagebox.showinfo("Print shop", "Jis order ko upar/neeche karna hai, us line par click kijiye.", parent=win)
+            messagebox.showinfo("Print shop", "Click the order you want to move first.", parent=win)
             return
         o = m.SHOP.get(s_[0])
         if o and not m.SHOP.move(o["id"], how) and o["status"] not in ("waiting", "receiving"):
-            messagebox.showinfo("Print shop", "Sirf line mein khade (abhi tak na chhape) order aage-peeche ho sakte hain.", parent=win)
+            messagebox.showinfo("Print shop", "Only orders that are still in the queue (not yet printed) can be moved.", parent=win)
 
     def do_amount():
         s_ = tv.selection()
         o = m.SHOP.get(s_[0]) if s_ else None
         if not o:
-            messagebox.showinfo("Print shop", "Jis order ke rupaye badalne hain, us line par click kijiye.", parent=win)
+            messagebox.showinfo("Print shop", "Click the order whose amount you want to change first.", parent=win)
             return
-        v = simpledialog.askstring("Rupaye badlo", f"Order #{o['token']} ({o['customer']})\n"
-                                   f"Apne aap hisaab: ₹{o.get('calc_total', o['total']):g}\n\n"
-                                   "Kitne rupaye lene hain? (khaali chhodein = apne aap hisaab)",
+        v = simpledialog.askstring("Change amount", f"Order #{o['token']} ({o['customer']})\n"
+                                   f"Calculated amount: ₹{o.get('calc_total', o['total']):g}\n\n"
+                                   "Enter the amount to charge (leave blank to use the calculated amount):",
                                    parent=win, initialvalue=f"{o['total']:g}")
         if v is None:
             return
@@ -469,7 +469,7 @@ def open_shop(root, m):
             if amt < 0:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("Rupaye badlo", "Sahi number likhiye (jaise 50)", parent=win)
+            messagebox.showerror("Change amount", "Please enter a valid number (e.g. 50)", parent=win)
             return
         m.SHOP.set_amount(o["id"], amt)
 
@@ -477,18 +477,18 @@ def open_shop(root, m):
     bb.pack(fill="x", pady=(0, 6))
     lft = tk.Frame(bb, bg=C["light"])
     lft.pack(side="left")
-    tk.Label(lft, text="Kram:", font=(F, 9), fg=C["mut"], bg=C["light"]).pack(side="left", padx=(0, 4))
-    for t, how in [("⤒ Sabse pehle", "top"), ("▲ Upar", "up"), ("▼ Neeche", "down")]:
+    tk.Label(lft, text="Order:", font=(F, 9), fg=C["mut"], bg=C["light"]).pack(side="left", padx=(0, 4))
+    for t, how in [("⤒ Move to top", "top"), ("▲ Up", "up"), ("▼ Down", "down")]:
         _btn(lft, t, lambda h=how: do_move(h), "white", C["text"], highlightthickness=1,
              highlightbackground=C["line"]).pack(side="left", padx=2)
     rgt = tk.Frame(bb, bg=C["light"])
     rgt.pack(side="right")
-    _btn(rgt, "Hatao", do_remove, "#fee2e2", C["red"]).pack(side="right", padx=(6, 0))
-    _btn(rgt, "Rupaye badlo", do_amount, "white", C["text"], highlightthickness=1,
+    _btn(rgt, "Decline", do_remove, "#fee2e2", C["red"]).pack(side="right", padx=(6, 0))
+    _btn(rgt, "Change amount", do_amount, "white", C["text"], highlightthickness=1,
          highlightbackground=C["line"]).pack(side="right", padx=3)
-    _btn(rgt, "File kholiye", do_open, "white", C["text"], highlightthickness=1,
+    _btn(rgt, "Open files", do_open, "white", C["text"], highlightthickness=1,
          highlightbackground=C["line"]).pack(side="right", padx=3)
-    _btn(rgt, "✓ De diya", do_done, C["green"], big=True).pack(side="right", padx=3)
+    _btn(rgt, "✓ Collected", do_done, C["green"], big=True).pack(side="right", padx=3)
     print_btn = _btn(rgt, "Print", do_print, C["purple2"], big=True)
     print_btn.pack(side="right", padx=3)
 
@@ -503,16 +503,16 @@ def open_shop(root, m):
         d.configure(bg="white", padx=18, pady=14)
         d.grab_set()
         vals = {}
-        for i, (k, label) in enumerate([("name", "Shop ka naam"), ("bw_rate", "Black & White ₹ / kaagaz"),
-                                        ("color_rate", "Color ₹ / kaagaz"),
-                                        ("message", "Customer ke liye sandesh\n(jaise: Lunch 2-3 baje)")]):
+        for i, (k, label) in enumerate([("name", "Shop name"), ("bw_rate", "Black & white price (₹ / sheet)"),
+                                        ("color_rate", "Color price (₹ / sheet)"),
+                                        ("message", "Message for customers\n(e.g. Closed 2-3 pm for lunch)")]):
             tk.Label(d, text=label, bg="white", font=(F, 10), justify="left").grid(row=i, column=0, sticky="w", pady=5)
             e = ttk.Entry(d, width=34)
             e.insert(0, str(S.get(k, "") if k != "name" else (S.get("name") or m.CFG["name"])))
             e.grid(row=i, column=1, pady=5, padx=(10, 0))
             vals[k] = e
         priv_var = tk.BooleanVar(value=S.get("allow_private", True))
-        tk.Checkbutton(d, text="Private order lo (customer chahe to aap uski file na dekh sakein, sirf print karein)",
+        tk.Checkbutton(d, text="Accept private orders (customers can choose to hide their files; you can only print them)",
                        variable=priv_var, bg="white", font=(F, 9)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         def ok():
@@ -521,7 +521,7 @@ def open_shop(root, m):
                 if bw < 0 or col < 0:
                     raise ValueError
             except ValueError:
-                messagebox.showerror("Shop settings", "Rate sahi number mein likhiye (jaise 2 ya 1.5)", parent=d)
+                messagebox.showerror("Shop settings", "Please enter valid prices (e.g. 2 or 1.5)", parent=d)
                 return
             with m.CFG_LOCK:
                 S.update(name=vals["name"].get().strip()[:40], bw_rate=bw, color_rate=col,
@@ -535,9 +535,9 @@ def open_shop(root, m):
     def copy_link():
         win.clipboard_clear()
         win.clipboard_append(m.shop_link())
-        m.emit("Shop link copy hua")
+        m.emit("Shop link copied")
 
-    for t, cmd in [("Settings", settings), ("Poster (QR)", lambda: make_poster(m, win)), ("Link copy", copy_link),
+    for t, cmd in [("Settings", settings), ("Poster (QR)", lambda: make_poster(m, win)), ("Copy link", copy_link),
                    ("Report", lambda: open_report(root, m))]:
         tk.Button(hb, text=t, command=cmd, bg="#8b5cf6", fg="white", activebackground="#a78bfa", activeforeground="white",
                   relief="flat", bd=0, cursor="hand2", font=(F, 9), padx=10, pady=3).pack(side="left", padx=(6, 0))
@@ -559,8 +559,8 @@ def open_shop(root, m):
     def ask_enable():  # window dikhne ke baad hi poochho (warna sawaal chhupa reh jaata hai)
         win.lift()
         if not S.get("enabled") and messagebox.askyesno(
-                "Print shop", "Shop abhi BAND hai. Kholein?\n\nKhulne par koi bhi customer aapka shop QR scan karke "
-                              "file bhej sakta hai. Print aap hi karenge.", parent=win):
+                "Print shop", "The shop is currently CLOSED. Open it now?\n\nWhen open, any customer can scan your shop QR code "
+                              "and send files. You stay in control of what gets printed.", parent=win):
             on_var.set(True)
             save_shop()
     win.after(400, ask_enable)
@@ -587,7 +587,7 @@ def make_poster(m, parent=None, open_after=True):
     import qrcode
     link = m.shop_link()
     if not link:
-        messagebox.showerror("Poster", "Pehle server set kijiye", parent=parent)
+        messagebox.showerror("Poster", "Please set the server address first", parent=parent)
         return None
     W, H = 2480, 3508
     img = Image.new("RGB", (W, H), "white")
@@ -600,49 +600,49 @@ def make_poster(m, parent=None, open_after=True):
         d.text(((W - w) / 2, y), text, font=font, fill=fill)
 
     center(110, m.shop_name()[:28], _font(150), "white")
-    center(320, "Mobile se seedha print karwaiye", _font(90, False), (237, 233, 254))
+    center(320, "Print straight from your phone", _font(90, False), (237, 233, 254))
     q = qrcode.QRCode(border=2, box_size=10, error_correction=qrcode.constants.ERROR_CORRECT_M)
     q.add_data(link)
     q.make(fit=True)
     qi = q.make_image(fill_color="black", back_color="white").get_image().convert("RGB").resize((1400, 1400), Image.NEAREST)
     img.paste(qi, ((W - 1400) // 2, 650))
     d.rounded_rectangle([(W - 1400) // 2 - 20, 630, (W + 1400) // 2 + 20, 2070], radius=40, outline=purple, width=12)
-    center(2110, "Phone ke camera se scan kijiye", _font(95), (31, 41, 55))
-    steps = ["1.  QR scan kijiye aur apna naam likhiye", "2.  File chuniye aur 'Shop ko bhejiye' dabaiye",
-             "3.  Token number milega. Taiyaar hone par counter se lijiye"]
+    center(2110, "Scan with your phone camera", _font(95), (31, 41, 55))
+    steps = ["1.  Scan the QR code and enter your name", "2.  Choose your files and tap 'Send to shop'",
+             "3.  Get a token and collect your prints at the counter"]
     for i, s in enumerate(steps):
         d.text((260, 2330 + i * 150), s, font=_font(78, False), fill=(55, 65, 81))
     S = m.CFG["shop"]
     d.rounded_rectangle([260, 2860, W - 260, 3180], radius=40, fill=(245, 243, 255))
-    center(2920, f"Black & White: Rs {S['bw_rate']:g} / page", _font(95), purple)
+    center(2920, f"Black & white: Rs {S['bw_rate']:g} / page", _font(95), purple)
     center(3050, f"Color: Rs {S['color_rate']:g} / page", _font(95), purple)
-    center(3300, "Koi app install karne ki zaroorat nahi  •  PrintBridge", _font(60, False), (120, 120, 120))
+    center(3300, "No app installation required  •  PrintBridge", _font(60, False), (120, 120, 120))
     path = os.path.join(m.DATA_DIR, "Shop_poster.pdf")
     img.save(path, "PDF", resolution=300)
     img.save(os.path.join(m.DATA_DIR, "Shop_poster.png"))
-    m.emit(f"Poster bana: {path}")
+    m.emit(f"Poster created: {path}")
     if open_after:
         _open_file(path)
     return path
 
 
 # =================================================================== REPORT (Office mode)
-SRC = {"phone": "Phone", "shop": "Print shop", "local": "Bina internet"}
+SRC = {"phone": "Phone", "shop": "Print shop", "local": "Offline", "self": "This computer"}
 
 
 def open_report(root, m):
-    win = _single("report", root, "PrintBridge - Report (kisne kitna chhapa)", "720x500")
+    win = _single("report", root, "PrintBridge - Usage report", "720x500")
     if win is None:
         return
     top = tk.Frame(win, bg="white", padx=12, pady=10)
     top.pack(fill="x")
     tk.Label(top, text="Report", font=(F, 15, "bold"), fg="#1a56db", bg="white").pack(side="left")
     period = tk.StringVar(value="today")
-    for v, t in [("today", "Aaj"), ("week", "Is hafte"), ("month", "Is mahine"), ("all", "Sab")]:
+    for v, t in [("today", "Today"), ("week", "This week"), ("month", "This month"), ("all", "All time")]:
         ttk.Radiobutton(top, text=t, value=v, variable=period, command=lambda: refresh()).pack(side="left", padx=(16, 0))
 
     cols = ("naam", "src", "prints", "pages", "color", "bw", "rs")
-    heads = ("Naam", "Kahan se", "Prints", "Kul kaagaz", "Color", "B&W", "Rupaye (shop)")
+    heads = ("Name", "Source", "Prints", "Total sheets", "Color", "B&W", "Revenue (shop)")
     frame = tk.Frame(win, bg="white")
     frame.pack(fill="both", expand=True, padx=12)
     tv = ttk.Treeview(frame, columns=cols, show="headings")
@@ -660,38 +660,38 @@ def open_report(root, m):
             tv.insert("", "end", values=(d["name"], SRC.get(d["source"], d["source"]), d["prints"],
                                          f"{d['pages']}" + (f" +{d['unknown']}?" if d["unknown"] else ""),
                                          d["color"], d["bw"], f"₹{d['amount']:g}" if d["amount"] else "-"))
-        total.configure(text=f"Kul: {sum(d['prints'] for d in data)} prints  •  {sum(d['pages'] for d in data)} kaagaz  "
+        total.configure(text=f"Total: {sum(d['prints'] for d in data)} prints  •  {sum(d['pages'] for d in data)} sheets  "
                              f"(Color {sum(d['color'] for d in data)}, B&W {sum(d['bw'] for d in data)})"
                              + (f"  •  Shop ₹{sum(d['amount'] for d in data):g}" if any(d['amount'] for d in data) else ""))
 
     def export():
-        name = {"today": "aaj", "week": "hafta", "month": "mahina", "all": "sab"}[period.get()]
+        name = {"today": "today", "week": "week", "month": "month", "all": "all"}[period.get()]
         path = filedialog.asksaveasfilename(parent=win, defaultextension=".csv", filetypes=[("Excel / CSV", "*.csv")],
                                             initialfile=f"PrintBridge_report_{name}_{datetime.now():%Y%m%d}.csv")
         if path:
             n = m.us.export(path, period.get())
-            messagebox.showinfo("Report", f"{n} prints ki list save ho gayi:\n{path}\n\nIse Excel mein khol sakte hain.", parent=win)
+            messagebox.showinfo("Report", f"Saved {n} print records to:\n{path}\n\nYou can open this file in Excel.", parent=win)
 
     bb = tk.Frame(win, bg="white")
     bb.pack(fill="x", padx=12, pady=(0, 12))
-    ttk.Button(bb, text="Excel (CSV) mein save", command=export).pack(side="left")
+    ttk.Button(bb, text="Export to Excel (CSV)", command=export).pack(side="left")
     ttk.Button(bb, text="Refresh", command=refresh).pack(side="left", padx=6)
     refresh()
 
 
 # =================================================================== PHONES (niyam)
 def open_phones(root, m, after_change=None):
-    win = _single("phones", root, "PrintBridge - Jude hue phones", "700x440")
+    win = _single("phones", root, "PrintBridge - Connected devices", "700x440")
     if win is None:
         return
-    tk.Label(win, text="Jude hue phones", font=(F, 15, "bold"), fg="#1a56db", bg="white").pack(anchor="w", padx=12, pady=(10, 0))
-    tk.Label(win, text="Office / ghar ke niyam: kisi phone ke liye color band kijiye ya roz ki page limit lagaiye.",
+    tk.Label(win, text="Connected devices", font=(F, 15, "bold"), fg="#1a56db", bg="white").pack(anchor="w", padx=12, pady=(10, 0))
+    tk.Label(win, text="Usage rules: disable color printing or set a daily sheet limit for individual devices.",
              font=(F, 9), fg="#555", bg="white").pack(anchor="w", padx=12)
     cols = ("naam", "juda", "aaj", "color", "limit")
     frame = tk.Frame(win, bg="white")
     frame.pack(fill="both", expand=True, padx=12, pady=8)
     tv = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
-    for c, h, w in zip(cols, ("Naam", "Kab juda", "Aaj ke kaagaz", "Color", "Roz ki limit"), (200, 140, 100, 90, 100)):
+    for c, h, w in zip(cols, ("Name", "Connected on", "Sheets today", "Color", "Daily limit"), (200, 140, 100, 90, 100)):
         tv.heading(c, text=h)
         tv.column(c, width=w, anchor="w" if c == "naam" else "center")
     tv.pack(fill="both", expand=True)
@@ -703,8 +703,8 @@ def open_phones(root, m, after_change=None):
             r = m.CFG["rules"].get(h, {})
             tv.insert("", "end", iid=h, values=(ph.get("name", "Phone"), ph.get("added", "")[:16].replace("T", " "),
                                                 m.us.today_pages(h[:12]),
-                                                "BAND" if r.get("no_color") else "Chalu",
-                                                r.get("daily_limit") or "Koi nahi"))
+                                                "Disabled" if r.get("no_color") else "Allowed",
+                                                r.get("daily_limit") or "None"))
         if keep and tv.exists(keep[0]):
             tv.selection_set(keep[0])
         elif len(m.CFG["phones"]) == 1:  # ek hi phone ho to wahi chuna hua
@@ -713,7 +713,7 @@ def open_phones(root, m, after_change=None):
     def sel():
         s = tv.selection()
         if not s:
-            messagebox.showinfo("Phones", "Pehle ek phone chuniye", parent=win)
+            messagebox.showinfo("Devices", "Please select a device first", parent=win)
         return s[0] if s else None
 
     def set_rule(h, **kw):
@@ -731,7 +731,7 @@ def open_phones(root, m, after_change=None):
         h = sel()
         if not h:
             return
-        v = simpledialog.askinteger("Roz ki limit", "Ye phone roz kitne kaagaz chhaap sakta hai?\n(0 = koi limit nahi)",
+        v = simpledialog.askinteger("Daily limit", "Maximum sheets this device can print per day:\n(0 = no limit)",
                                     parent=win, minvalue=0, maxvalue=100000,
                                     initialvalue=m.CFG["rules"].get(h, {}).get("daily_limit") or 0)
         if v is not None:
@@ -739,19 +739,19 @@ def open_phones(root, m, after_change=None):
 
     def remove():
         h = sel()
-        if h and messagebox.askyesno("Phones", f"'{m.CFG['phones'][h].get('name')}' ko hata dein?\n"
-                                               "Use dobara jodne ke liye ID + PIN chahiye hoga.", parent=win):
+        if h and messagebox.askyesno("Devices", f"Remove '{m.CFG['phones'][h].get('name')}'?\n"
+                                               "It will need the Computer ID and PIN to connect again.", parent=win):
             with m.CFG_LOCK:
                 m.CFG["phones"].pop(h, None)
                 m.CFG["rules"].pop(h, None)
                 m.save_config()
-            m.emit("Ek phone hata diya")
+            m.emit("Device removed")
             refresh()
             after_change and after_change()
 
     bb = tk.Frame(win, bg="white")
     bb.pack(fill="x", padx=12, pady=(0, 12))
-    ttk.Button(bb, text="Color band / chalu", command=toggle_color).pack(side="left")
-    ttk.Button(bb, text="Roz ki limit…", command=limit).pack(side="left", padx=6)
-    ttk.Button(bb, text="Ye phone hatao", command=remove).pack(side="left")
+    ttk.Button(bb, text="Toggle color printing", command=toggle_color).pack(side="left")
+    ttk.Button(bb, text="Daily limit…", command=limit).pack(side="left", padx=6)
+    ttk.Button(bb, text="Remove device", command=remove).pack(side="left")
     refresh()

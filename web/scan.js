@@ -30,16 +30,16 @@
   function renderGrid() {
     $("scanGrid").innerHTML = pages.length ? pages.map((p, i) =>
       `<div class="sp" data-i="${i}"><img src="${p.url || ""}" alt="" draggable="false"><span class="no">${i + 1}</span><span class="fl">${FNAMES[p.filter] || ""}</span></div>`).join("")
-      + `<div class="sp add" id="spAdd"><b>＋</b><span>Aur page</span></div>`
-      : `<div class="empty"><b>📄</b>Abhi koi page nahi.<br>"Scan karein" dabaiye, app kinaare khud pehchaan kar photo legi.</div>`;
+      + `<div class="sp add" id="spAdd"><b>＋</b><span>Add page</span></div>`
+      : `<div class="empty"><b>📄</b>No pages yet.<br>Tap "Scan document" — edges are detected automatically.</div>`;
     $("scanActions").classList.toggle("hidden", !pages.length);
-    $("scanCount").textContent = pages.length ? `${pages.length} page` : "";
+    $("scanCount").textContent = pages.length ? `${pages.length} ${pages.length === 1 ? "page" : "pages"}` : "";
     $("scanTip").classList.toggle("hidden", pages.length < 1);
-    $("liveBtn").textContent = pages.length ? "📷 Aur page scan karein" : "📷 Scan karein";
+    $("liveBtn").textContent = pages.length ? "📷 Scan more pages" : "📷 Scan document";
     $("scanPrint").disabled = $("scanShare").disabled = $("scanShareImg").disabled = !pages.length;
     $("scanClear").classList.toggle("hidden", !pages.length);
     saveSession();
-    $("scanPrint").textContent = pages.length > 1 ? `🖨 ${pages.length} page print karein` : "🖨 Print karein";
+    $("scanPrint").textContent = pages.length > 1 ? `🖨 Print ${pages.length} pages` : "🖨 Print";
   }
   $("scanGrid").onclick = e => {
     if (gd && gd.justDragged) { gd = null; return; }
@@ -87,7 +87,7 @@
     gd = { justDragged: true }; setTimeout(() => { if (gd && gd.justDragged) gd = null; }, 400);
     if (to != null && to !== from) {
       const [p] = pages.splice(from, 1); pages.splice(to, 0, p);
-      PB.toast(`Page ${from + 1} ab ${to + 1} number par hai`);
+      PB.toast(`Page ${from + 1} moved to position ${to + 1}`);
     }
     renderGrid();
   };
@@ -127,7 +127,7 @@
       const rec = await new Promise(res => { const r = db.transaction("s").objectStore("s").get("session"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
       db.close();
       if (!rec || !rec.pages || !rec.pages.length || pages.length) return;
-      restoring = true; smsg("info", `⏳ Pichhle ${rec.pages.length} page wapas la rahe hain…`);
+      restoring = true; smsg("info", `⏳ Restoring ${rec.pages.length} pages from your last session…`);
       for (const r of rec.pages) {
         const src = await fileToCanvas(r.src);
         const page = { src, srcBlob: r.src, corners: r.corners, rot: r.rot || 0, filter: r.filter || "magic" };
@@ -135,13 +135,13 @@
       }
       if (rec.name) $("scanName").value = rec.name;
       restoring = false; renderGrid();
-      smsg("ok", `↩ Pichhli baar ke ${pages.length} page wapas aa gaye. Naya scan chahiye to neeche "Sab pages hatakar naya scan" dabaiye.`);
+      smsg("ok", `↩ Restored ${pages.length} pages from your last session. To start over, tap "Clear and start new scan" below.`);
     } catch (e) { restoring = false; }
   }
   $("scanClear").onclick = () => {
-    if (!pages.length || !confirm(`Sabhi ${pages.length} page hata kar naya scan shuru karein?`)) return;
+    if (!pages.length || !confirm(`Delete all ${pages.length} pages and start a new scan?`)) return;
     pages.forEach(p => p.url && URL.revokeObjectURL(p.url)); pages.length = 0;
-    $("scanName").value = ""; openScan(); smsg("ok", "Naya scan: neeche button se page jodiye.");
+    $("scanName").value = ""; openScan(); smsg("ok", "New scan started. Use the buttons below to add pages.");
   };
 
   // ---------------------------------------------------------------- pages jodna
@@ -165,7 +165,7 @@
         const page = { src, corners: auto ? autoCorners(src) : FULL(), rot: 0, filter };
         await processPage(page);
         pages.push(page);
-      } catch (e) { smsg("err", "Photo khul nahi paayi: " + (f.name || "")); }
+      } catch (e) { smsg("err", "Could not open image: " + (f.name || "")); }
     }
     renderGrid();
     if (openFirst && pages.length > start) openEditor(start, pages, renderGrid, auto ? "crop" : "filter");
@@ -176,28 +176,28 @@
   // Laptop ke scanner se
   async function laptopScan() {
     const l = PB.cur();
-    if (!l || !PB.isOnline()) return smsg("err", "Laptop offline hai");
+    if (!l || !PB.isOnline()) return smsg("err", "The computer is offline");
     $("lapScanBtn").disabled = true;
-    smsg("info", "🖨 Laptop ko scan ke liye bola… Kaagaz scanner ke glass par rakhiye.");
+    smsg("info", "🖨 Scan requested. Place the document on the scanner glass.");
     try {
       const r = await PB.api(`/api/devices/${encodeURIComponent(l.id)}/scan`, {
         method: "POST", headers: { "Content-Type": "application/json", "X-PB-Token": l.token },
         body: JSON.stringify({ color: "color", dpi: 200, phone: PB.phoneName }) });
-      if (!r.ok) throw new Error(r.error || "Scan shuru nahi hua");
+      if (!r.ok) throw new Error(r.error || "Could not start the scan");
       const until = Date.now() + 3 * 60 * 1000;
       while (Date.now() < until) {
         await new Promise(res => setTimeout(res, 1500));
         const st = await PB.api(`/api/scans/${r.scan_id}`).catch(() => null);
         if (!st || !st.ok) continue;
-        if (st.status === "scanning") smsg("info", "🖨 Scan ho raha hai…");
-        if (st.status === "error") throw new Error(st.message || "Scan nahi ho paaya");
+        if (st.status === "scanning") smsg("info", "🖨 Scanning…");
+        if (st.status === "error") throw new Error(st.message || "Scan failed");
         if (st.status === "done") {
-          const blob = await fetch(`/api/scans/${r.scan_id}/file?key=${encodeURIComponent(r.key)}`).then(x => { if (!x.ok) throw new Error("Scan download nahi hua"); return x.blob(); });
+          const blob = await fetch(`/api/scans/${r.scan_id}/file?key=${encodeURIComponent(r.key)}`).then(x => { if (!x.ok) throw new Error("Could not download the scan"); return x.blob(); });
           await addImages([blob], "orig", true, false);  // scanner ka poora page, kaatna nahi
-          return smsg("ok", "✅ Scan aa gaya. Aur page ke liye dobara dabaiye.");
+          return smsg("ok", "✅ Scan received. Tap again to scan another page.");
         }
       }
-      throw new Error("Scanner se jawab nahi aaya");
+      throw new Error("No response from the scanner");
     } catch (e) { smsg("err", e.message); }
     finally { $("lapScanBtn").disabled = false; }
   }
@@ -276,12 +276,12 @@
     $("lvSvg").classList.toggle("ready", ready || lv.needChange);
     $("lvRing").style.strokeDashoffset = lv.auto ? RING * (1 - prog) : RING;
     let hint;
-    if (lv.busy) hint = "📸 Photo le rahe hain…";
-    else if (lv.needChange) hint = "✅ Ho gaya! Agla page rakhiye";
-    else if (!lv.target) hint = "Kaagaz ko frame mein rakhiye";
-    else if (qArea(lv.target) < 0.22) hint = "Thoda paas laaiye";
-    else if (!ready) hint = "Phone sthir rakhiye…";
-    else hint = lv.auto ? "Bas aise hi rakhiye…" : "Taiyaar! Button dabaiye";
+    if (lv.busy) hint = "📸 Capturing…";
+    else if (lv.needChange) hint = "✅ Captured! Place the next page";
+    else if (!lv.target) hint = "Position the document in the frame";
+    else if (qArea(lv.target) < 0.22) hint = "Move closer";
+    else if (!ready) hint = "Hold steady…";
+    else hint = lv.auto ? "Hold still…" : "Ready — tap the shutter";
     if ($("lvHint").textContent !== hint) $("lvHint").textContent = hint;
     if (lv.auto && prog >= 1 && now - lv.lastShot > 1200) captureLive(lv.target);
   }
@@ -293,7 +293,7 @@
       lv.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
         facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
     } catch (e) {
-      smsg("err", "Camera nahi khula (permission?). 'Camera app' button se photo lijiye.");
+      smsg("err", "Could not open the camera. Check camera permission, or use the 'Camera app' button.");
       return;
     }
     lv.track = lv.stream.getVideoTracks()[0];
@@ -358,7 +358,7 @@
         page.filter = old.filter; await processPage(page);
         pages[i] = page; lv.replace = null;
         stopLive(); renderGrid(); openEditor(i, pages, renderGrid, "crop");
-        PB.toast(`Page ${i + 1} badal diya`);
+        PB.toast(`Page ${i + 1} replaced`);
         return;
       }
       pages.push(page); lv.added++;
@@ -373,14 +373,14 @@
       }, 430);
       lv.needChange = true; lv.lastQ = liveQ || corners;
     } catch (e) {
-      $("lvHint").textContent = "Photo nahi li ja saki, dobara try kijiye";
+      $("lvHint").textContent = "Could not capture the photo. Please try again.";
     } finally { lv.busy = false; lv.stableSince = performance.now(); }
   }
   function liveDone() {
     const wasReplace = lv.replace != null; lv.replace = null;
     stopLive(); renderGrid();
     if (wasReplace) return;
-    if (lv.added) smsg("ok", `✅ ${lv.added} page scan hue. Kisi page par tap karke kone ya rang badal sakte hain.`);
+    if (lv.added) smsg("ok", `✅ ${lv.added} ${lv.added === 1 ? "page" : "pages"} scanned. Tap a page to adjust its crop or filter.`);
   }
   $("liveBtn").onclick = () => openLive();
   $("lvClose").onclick = liveDone;
@@ -491,10 +491,10 @@
   // ---------------------------------------------------------------- FILTERS (rang)
   const FILTERS = [
     { v: "magic", name: "✨ Magic" },   // rang saaf + kaagaz safed + chhaaya gayab
-    { v: "orig", name: "Asli" },
-    { v: "light", name: "☀ Roshan" },
+    { v: "orig", name: "Original" },
+    { v: "light", name: "☀ Bright" },
     { v: "doc", name: "📄 Document" },
-    { v: "gray", name: "Grey" },
+    { v: "gray", name: "Grayscale" },
     { v: "bw", name: "⚫ B&W" },
   ];
   const FNAMES = Object.fromEntries(FILTERS.map(f => [f.v, f.name]));
@@ -654,13 +654,13 @@
   }
   function edTitle() {
     if (isPages()) return `Page ${ed.i + 1} / ${pages.length}`;
-    return ed.i === 0 ? "Card: aage ka hissa" : "Card: peeche ka hissa";
+    return ed.i === 0 ? "Card: front side" : "Card: back side";
   }
   function showStep() {
     const crop = ed.step === "crop";
     $("editor").classList.toggle("crop", crop);
-    $("edTitle").textContent = crop ? "✂ Kone theek kijiye" : edTitle();
-    $("edDone").textContent = crop ? "Aage →" : "✓ Theek hai";
+    $("edTitle").textContent = crop ? "✂ Adjust corners" : edTitle();
+    $("edDone").textContent = crop ? "Next →" : "✓ Done";
     $("edPrev").classList.toggle("hidden", crop || !isPages() || ed.i === 0);
     $("edNext").classList.toggle("hidden", crop || !isPages() || ed.i >= pages.length - 1);
     $("edAll").classList.toggle("hidden", !isPages() || pages.length < 2);
@@ -770,7 +770,7 @@
   $("edAuto").onclick = () => {
     const q = window.PBDetect && window.PBDetect.detect(ed.list[ed.i].src);
     if (q) { ed.corners = q; placeHandles(); }
-    else $("edTitle").textContent = "Kone apne aap nahi mile, haath se lagaiye";
+    else $("edTitle").textContent = "Edges not detected. Please adjust the corners manually.";
   };
   $("edCropBtn").onclick = () => { ed.back = ed.corners.map(c => [...c]); ed.step = "crop"; showStep(); };
 
@@ -822,12 +822,12 @@
     $("edStrip").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
     drawFilter();
   };
-  $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; if (ed.step === "filter") drawFilter(); else $("edTitle").textContent = `⟳ ${ed.rot * 90}° ghumega`; };
+  $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; if (ed.step === "filter") drawFilter(); else $("edTitle").textContent = `⟳ Rotation: ${ed.rot * 90}°`; };
   $("edAll").onclick = async () => {
     const f = ed.filter, b = $("edAll"); b.disabled = true; b.textContent = "…";
     for (const p of pages) if (p !== ed.list[ed.i] && p.filter !== f) { p.filter = f; await processPage(p); }
-    b.disabled = false; b.textContent = "✔ Sab par laga";
-    setTimeout(() => { if (b.textContent.startsWith("✔")) b.textContent = "⧉ Sab pages par"; }, 1500);
+    b.disabled = false; b.textContent = "✔ Applied to all";
+    setTimeout(() => { if (b.textContent.startsWith("✔")) b.textContent = "⧉ Apply to all"; }, 1500);
   };
   async function saveEd() {
     const p = ed.list[ed.i];
@@ -887,7 +887,7 @@
     const { list, i, onDone } = ed, p = list[i];
     if (list === pages) list.splice(i, 1); else list[i] = null;
     closeEditor(); onDone();
-    PB.toast(list === pages ? `Page ${i + 1} hata diya` : "Hata diya", "↩ Wapas laao", () => {
+    PB.toast(list === pages ? `Page ${i + 1} deleted` : "Deleted", "↩ Undo", () => {
       if (list === pages) list.splice(Math.min(i, list.length), 0, p); else list[i] = p;
       onDone();
     }, 6000);
@@ -949,7 +949,7 @@
 
   let quality = "normal";
   try { quality = localStorage.getItem("pb.scanQual") || "normal"; } catch (e) {}
-  const QH = { small: "Kam KB — WhatsApp aur online form ke liye", normal: "Print ke liye sahi", hd: "Sabse saaf, file thodi badi" };
+  const QH = { small: "Smallest file — ideal for WhatsApp and online forms", normal: "Recommended for printing", hd: "Sharpest image, larger file" };
   const syncQual = () => { document.querySelectorAll("#scanQual button").forEach(b => b.classList.toggle("on", b.dataset.v === quality)); $("qualHint").textContent = QH[quality] || ""; };
   syncQual();
   $("scanQual").onclick = e => { const b = e.target.closest("button"); if (!b) return; quality = b.dataset.v; syncQual(); try { localStorage.setItem("pb.scanQual", quality); } catch (x) {} };
@@ -984,20 +984,20 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     }
-    msgFn("ok", `✅ ${list.length > 1 ? list.length + " files" : list[0].name} download ho gayi`);
+    msgFn("ok", `✅ ${list.length > 1 ? list.length + " files" : list[0].name} downloaded`);
     return false;
   }
   async function sharePdf(file, msgFn) { return shareFiles([file], msgFn, file.name); }
 
   async function busy(btn, fn) {
-    const t = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ Ban rahi hai…";
-    try { await fn(); } catch (e) { smsg("err", "PDF nahi ban paayi"); }
+    const t = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ Creating…";
+    try { await fn(); } catch (e) { smsg("err", "Could not create the PDF"); }
     finally { btn.disabled = false; btn.innerHTML = t; }
   }
   $("scanPrint").onclick = () => pages.length && busy($("scanPrint"), async () => PB.printFile(await makePdf()));
   $("scanShare").onclick = () => pages.length && busy($("scanShare"), async () => {
     const f = await makePdf();
-    smsg("info", `📄 ${f.name}: ${pages.length} page, ${kb(f.size)}${quality === "small" ? " (chhoti)" : quality === "hd" ? " (HD)" : ""}`);
+    smsg("info", `📄 ${f.name}: ${pages.length} ${pages.length === 1 ? "page" : "pages"}, ${kb(f.size)}${quality === "small" ? " (small)" : quality === "hd" ? " (HD)" : ""}`);
     await sharePdf(f, smsg);
   });
   $("scanShareImg").onclick = () => pages.length && busy($("scanShareImg"), async () => {
@@ -1039,7 +1039,7 @@
         p.cardUrl = URL.createObjectURL(p.card);
         el.innerHTML = `<img src="${p.cardUrl}" alt="">`; el.classList.add("has");
       } else {
-        el.innerHTML = `<span>${side ? "Peeche ka hissa <small>(zaroori nahi)</small>" : "Aage ka hissa"}</span>`; el.classList.remove("has");
+        el.innerHTML = `<span>${side ? "Back side <small>(optional)</small>" : "Front side"}</span>`; el.classList.remove("has");
       }
     }
     const any = idPages.some(Boolean);
@@ -1056,7 +1056,7 @@
       idPages[side] = page;
       await renderId();
       openEditor(side, idPages, renderId, "crop");
-    } catch (err) { idMsg("err", "Photo khul nahi paayi"); }
+    } catch (err) { idMsg("err", "Could not open the image"); }
   });
   ["idPrev0", "idPrev1"].forEach((id, side) => $(id).onclick = () => { if (idPages[side]) openEditor(side, idPages, renderId); });
   $("idSets").onclick = e => { const b = e.target.closest("button"); if (b) { idSets = +b.dataset.v; renderId(); } };
@@ -1089,8 +1089,8 @@
     $("idPrint").disabled = true;
     try {
       PB.printFile(await writePdf(idLayout(), idName()), { fit: "actual", nup: "1" },
-        "🪪 ID card taiyaar hai. Asli size ke liye \"Asli size\" chun liya gaya hai. \"Print karein\" dabaiye.");
-    } catch (e) { idMsg("err", "PDF nahi ban paayi"); }
+        "🪪 ID card is ready. \"Actual size\" has been selected automatically. Tap Print.");
+    } catch (e) { idMsg("err", "Could not create the PDF"); }
     finally { $("idPrint").disabled = false; }
   };
   $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };

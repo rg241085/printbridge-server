@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "1.4"
+VERSION = "2.0"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -76,7 +76,7 @@ class Agent:
             await self.send({"type": "rpc", "rid": rid, "method": method, "params": params})
             return await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:
-            raise HTTPException(504, "Laptop ne jawab nahi diya")
+            raise HTTPException(504, "The computer did not respond")
         finally:
             self.pending.pop(rid, None)
 
@@ -101,7 +101,7 @@ app = FastAPI(title="PrintBridge", docs_url=None, redoc_url=None)
 def get_agent(device_id: str) -> Agent:
     a = AGENTS.get(norm_id(device_id))
     if not a:
-        raise HTTPException(404, "Laptop abhi online nahi hai. Laptop par PrintBridge chalu kijiye.")
+        raise HTTPException(404, "The computer is offline. Make sure PrintBridge is running on it.")
     return a
 
 
@@ -124,7 +124,7 @@ async def agent_ws(ws: WebSocket):
         return
 
     device_id = id_from_secret(secret)
-    agent = Agent(ws, device_id, str(hello.get("name", "Laptop"))[:60], str(hello.get("version", "")))
+    agent = Agent(ws, device_id, str(hello.get("name", "Computer"))[:60], str(hello.get("version", "")))
     old = AGENTS.get(device_id)
     AGENTS[device_id] = agent
     if old:
@@ -195,23 +195,23 @@ async def pair(request: Request):
     fails = [t for t in PAIR_FAILS.get(ip, []) if now - t < PAIR_FAIL_WINDOW]
     PAIR_FAILS[ip] = fails
     if len(fails) >= PAIR_FAIL_LIMIT:
-        raise HTTPException(429, "Bahut baar galat PIN daala gaya. 10 minute baad try kijiye.")
+        raise HTTPException(429, "Too many incorrect PIN attempts. Please try again in 10 minutes.")
 
     if not device_id:
-        raise HTTPException(400, "Laptop ID sahi nahi hai (jaise PB-7K3M-9QX2)")
+        raise HTTPException(400, "Invalid Computer ID (e.g. PB-7K3M-9QX2)")
     if not valid_pin(pin):
-        raise HTTPException(400, "PIN 6 ank ka hota hai")
+        raise HTTPException(400, "The PIN must be 6 digits")
     agent = AGENTS.get(device_id)
     if not agent:
         fails.append(now)
-        raise HTTPException(404, "Is ID wala laptop online nahi mila. ID check kijiye aur laptop par PrintBridge chalu rakhiye.")
+        raise HTTPException(404, "No online computer found with this ID. Check the ID and make sure PrintBridge is running on the computer.")
 
     res = await agent.rpc("pair", {"pin": pin, "phone": str(body.get("phone", "Phone"))[:40]}, timeout=80)
     if not res.get("ok"):
         if res.get("denied"):
-            raise HTTPException(403, res.get("error", "Laptop par mana kar diya gaya"))
+            raise HTTPException(403, res.get("error", "The request was declined on the computer"))
         fails.append(now)
-        raise HTTPException(403, res.get("error", "PIN galat hai"))
+        raise HTTPException(403, res.get("error", "Incorrect PIN"))
     return {"ok": True, "id": agent.id, "name": agent.name, "token": res["token"]}
 
 
@@ -242,7 +242,7 @@ async def create_job(
     name = os.path.basename(file.filename or "file")
     ext = os.path.splitext(name)[1].lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(400, f"'{ext or name}' type ki file print nahi ho sakti")
+        raise HTTPException(400, f"'{ext or name}' files cannot be printed")
 
     job_id = uuid.uuid4().hex
     path = os.path.join(JOB_DIR, job_id + ext)
@@ -253,11 +253,11 @@ async def create_job(
             if size > MAX_MB * 1024 * 1024:
                 out.close()
                 os.remove(path)
-                raise HTTPException(413, f"File bahut badi hai (max {MAX_MB} MB)")
+                raise HTTPException(413, f"File is too large (maximum {MAX_MB} MB)")
             out.write(chunk)
 
     job = {"id": job_id, "device_id": agent.id, "path": path, "filename": name, "size": size,
-           "status": "waiting", "message": "Laptop ko bhej rahe hain", "created": time.time(),
+           "status": "waiting", "message": "Sending to the computer", "created": time.time(),
            "dl_key": secrets.token_urlsafe(16)}
     JOBS[job_id] = job
     try:
@@ -271,9 +271,9 @@ async def create_job(
         raise
     if not res.get("ok"):
         _drop_job(job_id)
-        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Laptop ne mana kar diya"))
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "The computer rejected the job"))
     job["status"] = "accepted"
-    job["message"] = "Laptop file le raha hai"
+    job["message"] = "The computer is receiving the file"
     return {"ok": True, "job_id": job_id}
 
 
@@ -281,14 +281,14 @@ async def create_job(
 async def cancel_job(job_id: str, x_pb_token: str = Header("")):
     job = JOBS.get(job_id)
     if not job:
-        raise HTTPException(404, "Job nahi mila")
+        raise HTTPException(404, "Job not found")
     if job["status"] in ("done", "error", "cancelled"):
         return {"ok": True, "status": job["status"]}
     agent = get_agent(job["device_id"])
     res = await agent.rpc("cancel", {"job_id": job_id, "token": x_pb_token})
     if not res.get("ok"):
-        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Cancel nahi ho paaya"))
-    job["status"], job["message"] = "cancelled", "Print cancel ho gaya"
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Could not cancel the job"))
+    job["status"], job["message"] = "cancelled", "Print cancelled"
     _drop_file(job)
     return {"ok": True, "status": "cancelled"}
 
@@ -299,7 +299,7 @@ async def start_scan(device_id: str, request: Request, x_pb_token: str = Header(
     agent = get_agent(device_id)
     body = await request.json()
     scan_id = uuid.uuid4().hex
-    sc = {"id": scan_id, "device_id": agent.id, "status": "waiting", "message": "Laptop ko bheja",
+    sc = {"id": scan_id, "device_id": agent.id, "status": "waiting", "message": "Request sent to the computer",
           "path": None, "created": time.time(), "up_key": secrets.token_urlsafe(16),
           "view_key": secrets.token_urlsafe(16)}
     SCANS[scan_id] = sc
@@ -309,7 +309,7 @@ async def start_scan(device_id: str, request: Request, x_pb_token: str = Header(
         "dpi": int(body.get("dpi") or 200), "phone": str(body.get("phone", "Phone"))[:40]})
     if not res.get("ok"):
         SCANS.pop(scan_id, None)
-        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Scan shuru nahi hua"))
+        raise HTTPException(401 if res.get("auth") is False else 400, res.get("error", "Could not start the scan"))
     return {"ok": True, "scan_id": scan_id, "key": sc["view_key"]}
 
 
@@ -317,7 +317,7 @@ async def start_scan(device_id: str, request: Request, x_pb_token: str = Header(
 async def scan_status(scan_id: str):
     sc = SCANS.get(scan_id)
     if not sc:
-        raise HTTPException(404, "Scan nahi mila")
+        raise HTTPException(404, "Scan not found")
     return {"ok": True, "status": sc["status"], "message": sc["message"]}
 
 
@@ -325,7 +325,7 @@ async def scan_status(scan_id: str):
 async def scan_file(scan_id: str, key: str = ""):
     sc = SCANS.get(scan_id)
     if not sc or not secrets.compare_digest(key, sc["view_key"]) or not sc["path"] or not os.path.exists(sc["path"]):
-        raise HTTPException(404, "Scan nahi mila")
+        raise HTTPException(404, "Scan not found")
     return FileResponse(sc["path"], media_type="image/jpeg", filename="scan.jpg")
 
 
@@ -333,7 +333,7 @@ async def scan_file(scan_id: str, key: str = ""):
 async def scan_upload(scan_id: str, request: Request, x_up_key: str = Header("")):
     sc = SCANS.get(scan_id)
     if not sc or not secrets.compare_digest(x_up_key, sc["up_key"]):
-        raise HTTPException(404, "Scan nahi mila")
+        raise HTTPException(404, "Scan not found")
     path = os.path.join(JOB_DIR, f"scan_{scan_id}.jpg")
     size = 0
     with open(path, "wb") as out:
@@ -342,9 +342,9 @@ async def scan_upload(scan_id: str, request: Request, x_up_key: str = Header("")
             if size > 40 * 1024 * 1024:
                 out.close()
                 os.remove(path)
-                raise HTTPException(413, "Scan bahut bada hai")
+                raise HTTPException(413, "The scan is too large")
             out.write(chunk)
-    sc.update(path=path, status="done", message="Scan aa gaya")
+    sc.update(path=path, status="done", message="Scan received")
     return {"ok": True}
 
 
@@ -352,7 +352,7 @@ async def scan_upload(scan_id: str, request: Request, x_up_key: str = Header("")
 async def job_status(job_id: str):
     job = JOBS.get(job_id)
     if not job:
-        raise HTTPException(404, "Job nahi mila")
+        raise HTTPException(404, "Job not found")
     return {"ok": True, "status": job["status"], "message": job["message"]}
 
 
@@ -360,7 +360,7 @@ async def job_status(job_id: str):
 async def agent_download(job_id: str, x_dl_key: str = Header("")):
     job = JOBS.get(job_id)
     if not job or not secrets.compare_digest(x_dl_key, job["dl_key"]) or not os.path.exists(job["path"]):
-        raise HTTPException(404, "File nahi mili")
+        raise HTTPException(404, "File not found")
     job["status"] = "downloading"
     return FileResponse(job["path"], filename=job["filename"])
 
@@ -407,7 +407,7 @@ SHOP_UPLOADS: dict[str, list] = {}  # IP -> upload ka samay (spam rokne ke liye)
 def shop_agent(code: str) -> Agent:
     a = AGENTS.get(norm_id(code))
     if not a:
-        raise HTTPException(404, "Shop ka computer abhi band hai. Thodi der baad try kijiye ya counter par baat kijiye.")
+        raise HTTPException(404, "The shop's computer is currently offline. Please try again shortly or ask at the counter.")
     return a
 
 
@@ -420,7 +420,7 @@ async def shop_page(code: str):
 async def shop_info(code: str):
     res = await shop_agent(code).rpc("shop_info", {})
     if not res.get("ok"):
-        raise HTTPException(403, res.get("error", "Shop band hai"))
+        raise HTTPException(403, res.get("error", "This shop is currently closed"))
     return res
 
 
@@ -434,10 +434,10 @@ async def shop_file(
     ip, now = client_ip(request), time.time()
     recent = [t for t in SHOP_UPLOADS.get(ip, []) if now - t < 600]
     if len(recent) >= 40:
-        raise HTTPException(429, "Bahut saari files bheji gayi. Thodi der baad try kijiye.")
+        raise HTTPException(429, "Too many files sent. Please try again shortly.")
     SHOP_UPLOADS[ip] = recent + [now]
     if not customer.strip():
-        raise HTTPException(400, "Apna naam likhiye")
+        raise HTTPException(400, "Please enter your name")
     agent = shop_agent(code)
     try:
         opts = json.loads(options[:2000]) if options else {}
@@ -447,7 +447,7 @@ async def shop_file(
     name = os.path.basename(file.filename or "file")
     ext = os.path.splitext(name)[1].lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(400, f"'{ext or name}' type ki file print nahi ho sakti")
+        raise HTTPException(400, f"'{ext or name}' files cannot be printed")
     job_id = uuid.uuid4().hex
     path = os.path.join(JOB_DIR, job_id + ext)
     size = 0
@@ -457,7 +457,7 @@ async def shop_file(
             if size > MAX_MB * 1024 * 1024:
                 out.close()
                 os.remove(path)
-                raise HTTPException(413, f"File bahut badi hai (max {MAX_MB} MB)")
+                raise HTTPException(413, f"File is too large (maximum {MAX_MB} MB)")
             out.write(chunk)
     job = {"id": job_id, "device_id": agent.id, "path": path, "filename": name, "size": size,
            "status": "waiting", "message": "", "created": time.time(), "dl_key": secrets.token_urlsafe(16)}
@@ -473,7 +473,7 @@ async def shop_file(
         raise
     if not res.get("ok"):
         _drop_job(job_id)
-        raise HTTPException(400, res.get("error", "Shop ne file nahi li"))
+        raise HTTPException(400, res.get("error", "The shop could not accept the file"))
     return {"ok": True, "token": res.get("token")}
 
 
@@ -481,7 +481,7 @@ async def shop_file(
 async def shop_order(code: str, order_id: str):
     res = await shop_agent(code).rpc("shop_status", {"order_id": order_id[:40]})
     if not res.get("ok"):
-        raise HTTPException(404, res.get("error", "Order nahi mila"))
+        raise HTTPException(404, res.get("error", "Order not found"))
     return res
 
 
@@ -489,7 +489,7 @@ async def shop_order(code: str, order_id: str):
 async def shop_order_cancel(code: str, order_id: str):
     res = await shop_agent(code).rpc("shop_cancel", {"order_id": order_id[:40]})
     if not res.get("ok"):
-        raise HTTPException(400, res.get("error", "Cancel nahi hua"))
+        raise HTTPException(400, res.get("error", "Could not cancel the order"))
     return res
 
 
@@ -545,7 +545,7 @@ async def share_fallback(request: Request):
 async def shared_list(tok: str):
     it = SHARED.get(tok)
     if not it:
-        raise HTTPException(404, "Share purana ho gaya")
+        raise HTTPException(404, "This shared file has expired")
     return {"files": [{"name": n, "type": t, "size": len(d)} for n, t, d in it["files"]], "text": it["text"]}
 
 
@@ -553,7 +553,7 @@ async def shared_list(tok: str):
 async def shared_file(tok: str, i: int):
     it = SHARED.get(tok)
     if not it or not (0 <= i < len(it["files"])):
-        raise HTTPException(404, "File nahi mili")
+        raise HTTPException(404, "File not found")
     n, t, d = it["files"][i]
     if i == len(it["files"]) - 1:
         SHARED.pop(tok, None)   # aakhri file le li: server se mita do

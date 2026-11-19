@@ -40,7 +40,7 @@ ALLOWED_EXT = IMAGE_EXT | PDF_EXT | OFFICE_EXT | TEXT_EXT
 DPI = 300
 MAX_PAGES = 500
 A4 = (2480, 3508)  # 300 DPI par A4 (pixels)
-TEST_PRINTER = "Test Printer (sirf folder me save)"
+TEST_PRINTER = "Test Printer (saves to folder)"
 
 DEFAULT_OPTS = {"pages": "all", "color": "color", "nup": 1, "fit": "fit", "reverse": False,
                 "paper": "default", "duplex": "off", "password": ""}
@@ -86,7 +86,7 @@ def select_pages(spec, n):
     if spec == "even":
         sel = list(range(1, n, 2))
         if not sel:
-            raise PrintError("Is file mein sirf 1 page hai, even page nahi hai")
+            raise PrintError("This file has only one page, so there are no even pages")
         return sel
     out = []
     for part in spec.replace(" ", "").split(","):
@@ -100,14 +100,14 @@ def select_pages(spec, n):
             else:
                 a = b = int(part)
         except ValueError:
-            raise PrintError(f"Page number samajh nahi aaya: '{part}' (jaise 1-3, 5 likhiye)")
+            raise PrintError(f"Invalid page number: '{part}' (use a format like 1-3, 5)")
         if a < 1 or b < a:
-            raise PrintError(f"Galat page range: '{part}'")
+            raise PrintError(f"Invalid page range: '{part}'")
         if a > n:
-            raise PrintError(f"File mein sirf {n} page hain, page {a} nahi hai")
+            raise PrintError(f"The file has only {n} pages, so page {a} does not exist")
         out.extend(range(a - 1, min(b, n)))
     if not out:
-        raise PrintError("Koi page nahi chuna gaya")
+        raise PrintError("No pages were selected")
     seen = set()
     return [i for i in out if not (i in seen or seen.add(i))]
 
@@ -125,7 +125,7 @@ class Doc:
             try:
                 self.img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
             except Exception as e:
-                raise PrintError("Photo khul nahi paayi") from e
+                raise PrintError("Could not open the image") from e
             self.count = 1
         else:
             import pypdfium2 as pdfium
@@ -133,14 +133,14 @@ class Doc:
                 self.pdf = pdfium.PdfDocument(path, password=password or None)
             except Exception as e:
                 if "password" in str(e).lower():
-                    raise PrintError("Ye PDF password wali hai. Phone app mein file chunkar sahi password daaliye."
-                                     if not password else "PDF ka password galat hai") from e
-                raise PrintError("PDF khul nahi paayi (shayad file kharab hai)") from e
+                    raise PrintError("This PDF is password-protected. Choose the file in the phone app and enter the correct password."
+                                     if not password else "Incorrect PDF password") from e
+                raise PrintError("Could not open the PDF (the file may be damaged)") from e
             self.count = len(self.pdf)
             if self.count == 0:
-                raise PrintError("PDF mein koi page nahi hai")
+                raise PrintError("The PDF has no pages")
             if self.count > MAX_PAGES:
-                raise PrintError(f"File mein {self.count} page hain (max {MAX_PAGES})")
+                raise PrintError(f"The file has {self.count} pages (maximum {MAX_PAGES})")
 
     def render(self, i, dpi=DPI):
         """Page i ka image, aur uska asli size inch mein (fit='actual' ke liye)."""
@@ -356,13 +356,13 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=N
     stats: dict, isme {"sheets": kaagaz (1 copy), "copies", "color": "color"/"bw"} bhar diya jaata hai."""
     ext = os.path.splitext(path)[1].lower()
     if ext not in ALLOWED_EXT:
-        raise PrintError(f"'{ext}' file print nahi ho sakti")
+        raise PrintError(f"'{ext}' files cannot be printed")
     copies = max(1, min(int(copies), 50))
     opts = clean_opts(opts)
     if stats is not None:
         stats.update(sheets=None, copies=copies, color=opts["color"])
     if not TEST_MODE and not printer:
-        raise PrintError("Laptop par koi printer nahi mila")
+        raise PrintError("No printer was found on the computer")
 
     if not IS_WIN and not TEST_MODE:
         return _cups_print(path, printer, copies, title, opts)
@@ -375,14 +375,14 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=N
         if pdf:
             work, ext = pdf, ".pdf"
         else:
-            note = " (is file par print settings nahi chali)"
+            note = " (print settings could not be applied to this file)"
     if ext in TEXT_EXT or ext in OFFICE_EXT:
         if TEST_MODE:
             os.makedirs(OUT_DIR, exist_ok=True)
             shutil.copy(path, os.path.join(OUT_DIR, os.path.basename(path)))
-            return f"TEST: file save hui{note}"
+            return f"TEST: file saved{note}"
         _win_shell_print(path, printer, copies)
-        return f"{copies} copy '{printer}' par bhej di gayi{note}"
+        return f"Sent {copies} {'copy' if copies == 1 else 'copies'} to '{printer}'{note}"
 
     doc = Doc(work, ext, opts["password"])
     try:
@@ -398,7 +398,7 @@ def print_file(path, printer, copies=1, title="PrintBridge", opts=None, cancel=N
         doc.close()
         if work != path:
             shutil.rmtree(os.path.dirname(work), ignore_errors=True)
-    return f"{sheets} kaagaz × {copies} copy '{printer}' par bhej di gayi{note}"
+    return f"Sent {sheets} {'sheet' if sheets == 1 else 'sheets'} × {copies} {'copy' if copies == 1 else 'copies'} to '{printer}'{note}"
 
 
 def _test_print(doc, opts, copies, name, cancel=None):
@@ -411,7 +411,7 @@ def _test_print(doc, opts, copies, name, cancel=None):
             raise Cancelled()
         time.sleep(delay)
         img.save(os.path.join(OUT_DIR, f"{base}_sheet{n}.png"))
-    return f"TEST: {n} kaagaz × {copies} copy save hui"
+    return f"TEST: saved {n} {'sheet' if n == 1 else 'sheets'} × {copies} {'copy' if copies == 1 else 'copies'}"
 
 
 def _make_dc(printer, opts):
@@ -439,14 +439,14 @@ def _make_dc(printer, opts):
                 win32print.ClosePrinter(h)
             return win32ui.CreateDCFromHandle(win32gui.CreateDC("WINSPOOL", printer, dm)), ""
         except Exception:
-            note = " (kaagaz ka size / dono taraf wali setting printer ne nahi maani)"
+            note = " (the printer did not accept the paper size or two-sided setting)"
     else:
         note = ""
     hdc = win32ui.CreateDC()
     try:
         hdc.CreatePrinterDC(printer)
     except Exception as e:
-        raise PrintError(f"Printer '{printer}' se baat nahi ho paayi") from e
+        raise PrintError(f"Could not communicate with printer '{printer}'") from e
     return hdc, note
 
 
@@ -537,8 +537,8 @@ def _win_shell_print(path, printer, copies):
             win32api.ShellExecute(0, "printto", path, f'"{printer}"', ".", 0)
         except Exception as e:
             raise PrintError(
-                "Is file ko kholne wali app laptop par nahi mili "
-                "(Word/Excel files ke liye MS Office ya LibreOffice chahiye)"
+                "No application was found on this computer to open this file "
+                "(Word/Excel files require Microsoft Office or LibreOffice)"
             ) from e
         time.sleep(2)
 
@@ -559,5 +559,5 @@ def _cups_print(path, printer, copies, title, opts):
         cmd += ["-o", "fit-to-page"]
     r = subprocess.run(cmd + [path], capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
-        raise PrintError(r.stderr.strip() or "lp command fail hua")
-    return f"{copies} copy '{printer}' par bhej di gayi"
+        raise PrintError(r.stderr.strip() or "The lp command failed")
+    return f"Sent {copies} {'copy' if copies == 1 else 'copies'} to '{printer}'"

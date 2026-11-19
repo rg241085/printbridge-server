@@ -44,7 +44,7 @@
   // ---------------------------------------------------------------- 1. jodna
   $("mergeBtn").onclick = async () => {
     const files = PB.getFiles(), btn = $("mergeBtn");
-    busy(btn, true, "Jod rahe hain…");
+    busy(btn, true, "Merging…");
     try {
       const { PDFDocument } = await loadPdfLib();
       const out = await PDFDocument.create();
@@ -54,7 +54,7 @@
         if (isPdf(f)) {
           let src;
           try { src = await PDFDocument.load(await f.arrayBuffer()); }
-          catch (e) { throw new Error(`"${f.name}" password wali ya kharab hai, ise joda nahi ja sakta`); }
+          catch (e) { throw new Error(`"${f.name}" is password-protected or damaged and cannot be merged`); }
           (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
         } else {
           const j = await imageToJpeg(f);
@@ -64,13 +64,13 @@
           out.addPage([W, H]).drawImage(img, { x: (W - w) / 2, y: (H - h) / 2, width: w, height: h });
         }
       }
-      const file = new File([await out.save()], `Joda_hua_${stamp()}.pdf`, { type: "application/pdf" });
+      const file = new File([await out.save()], `Merged_${stamp()}.pdf`, { type: "application/pdf" });
       lastResult = file;
       PB.setFiles([file]);
-      info(`✅ <b>${files.length} files</b> jodkar ek PDF bani: <b>${out.getPageCount()} page</b>, ${PB.fmt(file.size)}.<br>Ab print kijiye ya save/share kijiye.`);
+      info(`✅ Merged <b>${files.length} files</b> into one PDF: <b>${out.getPageCount()} pages</b>, ${PB.fmt(file.size)}.<br>You can now print, save or share it.`);
     } catch (e) {
-      PB.msg($("msg"), "err", e.message || "Files jud nahi paayi");
-    } finally { busy(btn, false, "🔗 Sab ko ek PDF mein jodiye"); update(); }
+      PB.msg($("msg"), "err", e.message || "Could not merge the files");
+    } finally { busy(btn, false, "🔗 Merge into one PDF"); update(); }
   };
 
   // ---------------------------------------------------------------- 2. chhota karna
@@ -82,12 +82,12 @@
     const f = PB.getFiles()[0], btn = $("cGo");
     if (!f || !isPdf(f)) return;
     const dpi = level === "high" ? 96 : 150, q = level === "high" ? 0.5 : 0.7;
-    busy(btn, true, "Chhoti kar rahe hain…");
+    busy(btn, true, "Compressing…");
     try {
       const [lib, { PDFDocument }] = await Promise.all([PB.loadPdfJs(), loadPdfLib()]);
       let doc;
       try { doc = await lib.getDocument({ data: await f.arrayBuffer(), password: PB.getPassword(f) }).promise; }
-      catch (e) { throw new Error(e && e.name === "PasswordException" ? "Pehle preview mein PDF ka password daaliye" : "PDF khul nahi paayi"); }
+      catch (e) { throw new Error(e && e.name === "PasswordException" ? "Enter the PDF password in the preview first" : "Could not open the PDF"); }
       const out = await PDFDocument.create();
       for (let i = 1; i <= doc.numPages; i++) {
         btn.textContent = `Page ${i} / ${doc.numPages}…`;
@@ -103,16 +103,16 @@
       const bytes = await out.save();
       $("compressBox").classList.add("hidden");
       if (bytes.length >= f.size * 0.95) {
-        info(`ℹ️ Ye PDF pehle se chhoti hai (${PB.fmt(f.size)}). Isse zyada chhoti nahi ho sakti.`);
+        info(`ℹ️ This PDF is already compact (${PB.fmt(f.size)}) and cannot be reduced further.`);
         return;
       }
       const file = new File([bytes], f.name.replace(/\.pdf$/i, "") + "_chhoti.pdf", { type: "application/pdf" });
       lastResult = file;
       PB.setFiles([file]);
-      info(`✅ PDF chhoti ho gayi: <b>${PB.fmt(f.size)} → ${PB.fmt(file.size)}</b> (${Math.round((1 - file.size / f.size) * 100)}% kam).<br>Ab save/share kijiye ya print kijiye.`);
+      info(`✅ PDF compressed: <b>${PB.fmt(f.size)} → ${PB.fmt(file.size)}</b> (${Math.round((1 - file.size / f.size) * 100)}% smaller).<br>You can now save, share or print it.`);
     } catch (e) {
-      PB.msg($("msg"), "err", e.message || "PDF chhoti nahi ho paayi");
-    } finally { busy(btn, false, "Chhoti karein"); update(); }
+      PB.msg($("msg"), "err", e.message || "Could not compress the PDF");
+    } finally { busy(btn, false, "Compress"); update(); }
   };
 
   async function share(file, msgEl) {
@@ -121,7 +121,7 @@
     } catch (e) { if (e.name === "AbortError") return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    PB.msg(msgEl, "ok", `✅ ${file.name} download ho gayi`);
+    PB.msg(msgEl, "ok", `✅ ${file.name} downloaded`);
   }
   $("toolShare").onclick = () => { const f = PB.getFiles()[0]; if (f) share(f, $("msg")); };
 
@@ -143,7 +143,7 @@
       $("ppZoom").value = 100;
       $("ppStage").classList.remove("hidden"); $("ppControls").classList.remove("hidden"); $("ppMsg").className = "msg";
       drawPP();
-    } catch (e) { ppMsg("err", "Photo khul nahi paayi"); }
+    } catch (e) { ppMsg("err", "Could not open the image"); }
   }
   $("ppCam").onchange = e => { ppLoad(e.target.files[0]); e.target.value = ""; };
   $("ppGal").onchange = e => { ppLoad(e.target.files[0]); e.target.value = ""; };
@@ -210,15 +210,15 @@
     return new File([await doc.save()], `Passport_${pp.size}_${stamp()}.pdf`, { type: "application/pdf" });
   }
   $("ppPrint").onclick = async () => {
-    if (!pp.img) return ppMsg("err", "Pehle photo chuniye");
+    if (!pp.img) return ppMsg("err", "Please choose a photo first");
     $("ppPrint").disabled = true;
     try {
       const f = await ppPdf();
-      window.PB.printFile(f, { fit: "actual", nup: "1" }, "🧑 Passport photo taiyaar hai. Asli size ke liye \"Asli size\" chun liya gaya hai. \"Print karein\" dabaiye.");
-    } catch (e) { ppMsg("err", "PDF nahi ban paayi"); }
+      window.PB.printFile(f, { fit: "actual", nup: "1" }, "🧑 Passport photos are ready. \"Actual size\" has been selected automatically. Tap Print.");
+    } catch (e) { ppMsg("err", "Could not create the PDF"); }
     finally { $("ppPrint").disabled = false; }
   };
-  $("ppShare").onclick = async () => { if (!pp.img) return ppMsg("err", "Pehle photo chuniye"); share(await ppPdf(), $("ppMsg")); };
+  $("ppShare").onclick = async () => { if (!pp.img) return ppMsg("err", "Please choose a photo first"); share(await ppPdf(), $("ppMsg")); };
 
   window.PBTools = { update, ppPdf, pp };
 })();

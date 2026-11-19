@@ -87,7 +87,7 @@ def scan(out_path, color="color", dpi=200, scanner_name=None):
     if TEST_MODE:
         return _fake_scan(out_path, color, dpi)
     if not IS_WIN:
-        raise ScanError("Scan sirf Windows par chalta hai")
+        raise ScanError("Scanning is only supported on Windows")
     pc = _com()
     try:
         import win32com.client
@@ -99,11 +99,11 @@ def scan(out_path, color="color", dpi=200, scanner_name=None):
                 info = d
                 break
         if info is None:
-            raise ScanError("Laptop se koi scanner juda nahi mila")
+            raise ScanError("No scanner is connected to the computer")
         try:
             dev = info.Connect()
         except Exception as e:
-            raise ScanError("Scanner se baat nahi ho paayi (band hai ya kisi aur program mein khula hai?)") from e
+            raise ScanError("Could not communicate with the scanner (is it switched off or in use by another program?)") from e
         item = dev.Items.Item(1)
         _set(item, WIA_INTENT, {"color": 1, "gray": 2, "bw": 4}.get(color, 1))
         _set(item, WIA_XRES, dpi)
@@ -113,7 +113,7 @@ def scan(out_path, color="color", dpi=200, scanner_name=None):
         try:
             img = item.Transfer()  # zyadatar scanners BMP dete hain
         except Exception as e:
-            raise ScanError("Scan nahi ho paaya. Kaagaz scanner par rakhiye aur dobara try kijiye.") from e
+            raise ScanError("The scan failed. Place the document on the scanner and try again.") from e
         tmp = out_path + ".raw"
         if os.path.exists(tmp):
             os.remove(tmp)

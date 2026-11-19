@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -75,82 +75,82 @@
 </style>
 </head>
 <body>
-<header><h1 id="shopName">🖨 Print shop</h1><p>File bhejiye, token lijiye, counter se print le lijiye</p></header>
+<header><h1 id="shopName">🖨 Print shop</h1><p>Send your files, get a token, and collect your prints at the counter</p></header>
 <main>
-  <section class="card hidden" id="closed"><p id="closedMsg"></p><button class="btn light" onclick="location.reload()">🔄 Dobara try kijiye</button></section>
+  <section class="card hidden" id="closed"><p id="closedMsg"></p><button class="btn light" onclick="location.reload()">🔄 Try again</button></section>
 
   <!-- ===== Order form ===== -->
   <div id="form" class="hidden">
     <section class="card hidden" id="addBanner" style="background:#ede9fe">
-      <b id="addTitle">Token #— mein files jod rahe hain</b>
-      <p class="hint">Nayi files isi order mein judengi. Token wahi rahega aur rupaye jud jaayenge.</p>
-      <button class="lnk" id="addCancel">← Wapas order par</button>
+      <b id="addTitle">Adding files to token #—</b>
+      <p class="hint">New files will be added to this order. Your token stays the same and the total will be updated.</p>
+      <button class="lnk" id="addCancel">← Back to order</button>
     </section>
     <section class="card" id="whoCard">
       <div class="banner hidden" id="shopMsg"></div>
-      <div class="rates"><div>Black &amp; White<b id="rBW">₹—</b>per kaagaz</div><div>Color<b id="rC">₹—</b>per kaagaz</div></div>
-      <label class="r" for="cname">Aapka naam *</label>
-      <input class="t" id="cname" maxlength="40" autocomplete="name" placeholder="jaise Rahul">
-      <label class="r" for="cmob">Mobile number <small>(zaroori nahi, sirf shop ko dikhega)</small></label>
+      <div class="rates"><div>Black &amp; White<b id="rBW">₹—</b>per sheet</div><div>Color<b id="rC">₹—</b>per sheet</div></div>
+      <label class="r" for="cname">Your name *</label>
+      <input class="t" id="cname" maxlength="40" autocomplete="name" placeholder="e.g. Rahul">
+      <label class="r" for="cmob">Mobile number <small>(optional, visible only to the shop)</small></label>
       <input class="t" id="cmob" maxlength="15" inputmode="tel" autocomplete="tel" placeholder="98xxxxxxxx">
     </section>
 
     <section class="card">
       <b>1. Files</b>
-      <label class="pick">📄<b>File chuniye</b><small>PDF, photo, Word, Excel • ek saath kai files</small>
+      <label class="pick">📄<b>Choose files</b><small>PDF, photos, Word, Excel • multiple files allowed</small>
         <input type="file" id="file" multiple accept=".pdf,image/*,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt"></label>
       <div id="list" style="margin-top:10px"></div>
     </section>
 
     <section class="card">
       <b>2. Print settings</b>
-      <label class="r">Copies (har file ki)</label>
+      <label class="r">Copies (per file)</label>
       <div class="stepper"><button id="minus">−</button><span id="copies">1</span><button id="plus">+</button></div>
-      <label class="r">Rang</label>
-      <div class="seg" data-k="color"><button data-v="bw" class="on">Black &amp; White</button><button data-v="color">Color</button></div>
-      <label class="r">Ek kaagaz par kitne page</label>
-      <div class="seg" data-k="nup"><button data-v="1" class="on">1 page</button><button data-v="2">2 page</button><button data-v="4">4 page</button></div>
-      <label class="r">Size</label>
-      <div class="seg" data-k="fit"><button data-v="fit" class="on">Kaagaz par fit</button><button data-v="actual">Asli size</button></div>
-      <div id="paperRow" class="hidden"><label class="r">Kaagaz</label><div class="seg wrap" data-k="paper" id="paperSeg"></div></div>
-      <div id="duplexRow" class="hidden"><label class="r">Dono taraf print</label>
-        <div class="seg" data-k="duplex"><button data-v="off" class="on">Nahi</button><button data-v="long">Haan (kitaab jaisa)</button></div></div>
+      <label class="r">Color</label>
+      <div class="seg" data-k="color"><button data-v="bw" class="on">Black &amp; white</button><button data-v="color">Color</button></div>
+      <label class="r">Pages per sheet</label>
+      <div class="seg" data-k="nup"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="4">4</button></div>
+      <label class="r">Scale</label>
+      <div class="seg" data-k="fit"><button data-v="fit" class="on">Fit to page</button><button data-v="actual">Actual size</button></div>
+      <div id="paperRow" class="hidden"><label class="r">Paper size</label><div class="seg wrap" data-k="paper" id="paperSeg"></div></div>
+      <div id="duplexRow" class="hidden"><label class="r">Two-sided printing</label>
+        <div class="seg" data-k="duplex"><button data-v="off" class="on">Off</button><button data-v="long">On (long edge)</button></div></div>
     </section>
 
     <section class="card">
-      <b>3. Aur</b>
+      <b>3. Additional options</b>
       <div id="privRow" class="privRow">
-        <label class="r">Shop wala aapki file dekh sakta hai?</label>
-        <div class="seg" data-k="private"><button data-v="0" class="on">👁 Haan, dekh sakta hai</button><button data-v="1">🔒 Nahi, seedha print</button></div>
-        <p class="priv" id="privHint">Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).</p>
+        <label class="r">Can the shop view your files?</label>
+        <div class="seg" data-k="private"><button data-v="0" class="on">👁 Yes, allow viewing</button><button data-v="1">🔒 No, print only</button></div>
+        <p class="priv" id="privHint">The shop can open your files, for example to point out a problem before printing.</p>
       </div>
       <div id="noteRow">
-      <label class="r" for="note">Shop ke liye sandesh <small>(zaroori nahi)</small></label>
-      <textarea class="t" id="note" maxlength="200" placeholder="jaise: spiral binding chahiye, ya staple kar dijiye"></textarea>
+      <label class="r" for="note">Note for the shop <small>(optional)</small></label>
+      <textarea class="t" id="note" maxlength="200" placeholder="e.g. spiral binding required, or please staple"></textarea>
       </div>
-      <div class="est"><div><small>Andaazit kharcha</small><span id="estPages">—</span></div><b id="est">₹0</b></div>
-      <button class="btn" id="send" disabled>Shop ko bhejiye</button>
+      <div class="est"><div><small>Estimated cost</small><span id="estPages">—</span></div><b id="est">₹0</b></div>
+      <button class="btn" id="send" disabled>Send to shop</button>
       <div class="bar" id="bar"><div></div></div>
       <div class="msg" id="msg"></div>
-      <p class="hint">🔒 Aapki files sirf is shop ke computer tak jaati hain aur kaam ke baad delete ho jaati hain.</p>
+      <p class="hint">🔒 Your files are sent only to this shop's computer and are deleted once your order is complete.</p>
     </section>
   </div>
 
   <!-- ===== Order status ===== -->
   <div id="status" class="hidden">
     <section class="card">
-      <div class="token"><small>Aapka token</small><b id="tok">#—</b></div>
+      <div class="token"><small>Your token</small><b id="tok">#—</b></div>
       <div class="state" id="state">…</div>
       <div class="sub" id="sub"></div>
-      <div style="text-align:center"><span class="pill hidden" id="privPill">🔒 Private: shop wala aapki file nahi dekh sakta</span></div>
+      <div style="text-align:center"><span class="pill hidden" id="privPill">🔒 Private: the shop cannot view your files</span></div>
     </section>
     <section class="card">
       <ul class="f" id="olist"></ul>
-      <div class="total"><span>Kul</span><span id="otot">₹—</span></div>
-      <p class="hint" id="payHint">Paisa counter par dijiye.</p>
-      <button class="btn light hidden" id="addMore">＋ Is order mein aur file jodiye</button>
-      <button class="btn red hidden" id="cancel">Order cancel karein</button>
-      <button class="btn light" id="again">＋ Naya alag order</button>
+      <div class="total"><span>Total</span><span id="otot">₹—</span></div>
+      <p class="hint" id="payHint">Please pay at the counter.</p>
+      <button class="btn light hidden" id="addMore">＋ Add more files to this order</button>
+      <button class="btn red hidden" id="cancel">Cancel order</button>
+      <button class="btn light" id="again">＋ Start a new order</button>
     </section>
   </div>
 </main>
@@ -176,17 +176,17 @@
     $("whoCard").classList.toggle("hidden", on);
     $("noteRow").classList.toggle("hidden", on);
     if (rates.allow_private) $("privRow").classList.toggle("hidden", on);
-    $("addTitle").textContent = on ? `Token #${s.token} mein files jod rahe hain` : "";
-    $("send").textContent = on ? `Token #${s.token} mein jodiye` : "Shop ko bhejiye";
+    $("addTitle").textContent = on ? `Adding files to token #${s.token}` : "";
+    $("send").textContent = on ? `Add to token #${s.token}` : "Send to shop";
   }
   const opt = { color: "bw", nup: "1", fit: "fit", paper: "default", duplex: "off", private: "0" };
-  const PAPER = { default: "Shop ka", a4: "A4", letter: "Letter", legal: "Legal", a3: "A3", a5: "A5" };
+  const PAPER = { default: "Shop default", a4: "A4", letter: "Letter", legal: "Legal", a3: "A3", a5: "A5" };
   const IMG = ["jpg", "jpeg", "png", "bmp", "gif", "webp"];
   const ext = f => (f.name.split(".").pop() || "").toLowerCase();
 
   async function start() {
-    const info = await api(`/api/shop/${code}`).catch(() => ({ ok: false, error: "Internet check kijiye" }));
-    if (!info.ok) { $("closed").classList.remove("hidden"); $("closedMsg").textContent = "⚠️ " + (info.error || "Shop abhi band hai"); return; }
+    const info = await api(`/api/shop/${code}`).catch(() => ({ ok: false, error: "Network error. Check your internet connection." }));
+    if (!info.ok) { $("closed").classList.remove("hidden"); $("closedMsg").textContent = "⚠️ " + (info.error || "This shop is currently closed"); return; }
     rates = info; document.title = info.name + " - Print"; $("shopName").textContent = "🖨 " + info.name;
     $("rBW").textContent = rs(+info.bw_rate); $("rC").textContent = rs(+info.color_rate);
     if (info.message) { $("shopMsg").textContent = "📢 " + info.message; $("shopMsg").classList.remove("hidden"); }
@@ -247,12 +247,12 @@
   function renderList() {
     $("list").innerHTML = items.map((it, i) => {
       let meta;
-      if (it.locked) meta = `🔒 Password wali PDF <button class="lnk" data-pw="${i}">Password daaliye</button>`;
-      else if (it.n == null) meta = it.loading ? "Page gin rahe hain…" : "Page shop par gine jaayenge";
-      else meta = `${it.sel.size} / ${it.n} page chune${it.n > 1 ? ` <button class="lnk" data-pv="${i}">${it.open ? "▲ Preview band" : "👁 Preview / page chuniye"}</button>` : ""}`;
+      if (it.locked) meta = `🔒 Password-protected PDF <button class="lnk" data-pw="${i}">Enter password</button>`;
+      else if (it.n == null) meta = it.loading ? "Counting pages…" : "Pages will be counted at the shop";
+      else meta = `${it.sel.size} of ${it.n} pages selected${it.n > 1 ? ` <button class="lnk" data-pv="${i}">${it.open ? "▲ Hide preview" : "👁 Preview / select pages"}</button>` : ""}`;
       return `<div class="fc" id="fc${i}"><div class="top"><span class="n">📄 ${esc(it.file.name)}</span><button class="x" data-x="${i}">×</button></div>
         <div class="meta"><span>${fmt(it.file.size)}</span><span>${meta}</span></div>
-        ${it.open && it.n ? `<div><button class="lnk" data-all="${i}">Sab chuniye</button> · <button class="lnk" data-none="${i}">Koi nahi</button></div><div class="grid"></div>` : ""}</div>`;
+        ${it.open && it.n ? `<div><button class="lnk" data-all="${i}">Select all</button> · <button class="lnk" data-none="${i}">None</button></div><div class="grid"></div>` : ""}</div>`;
     }).join("");
     items.forEach((it, i) => { if (it.open && it.n) renderThumbs(it, i); });
     $("send").disabled = !items.length;
@@ -265,8 +265,8 @@
     if (d.all !== undefined) { const it = items[+d.all]; it.sel = new Set([...Array(it.n).keys()]); return renderList(); }
     if (d.none !== undefined) { items[+d.none].sel = new Set(); return renderList(); }
     if (d.pw !== undefined) {
-      const it = items[+d.pw], pw = prompt(`"${it.file.name}" ka password:`);
-      if (pw) { it.password = pw; it.loading = true; renderList(); await inspect(it); it.loading = false; if (it.locked) msg("err", "Password galat hai"); renderList(); }
+      const it = items[+d.pw], pw = prompt(`Password for "${it.file.name}":`);
+      if (pw) { it.password = pw; it.loading = true; renderList(); await inspect(it); it.loading = false; if (it.locked) msg("err", "Incorrect password"); renderList(); }
       return;
     }
     const pv = t.closest(".pv");
@@ -282,7 +282,7 @@
     const bad = [], add = [];
     for (const f of e.target.files) (ALLOWED.includes(ext(f)) ? add : bad).push(f);
     e.target.value = "";
-    bad.length ? msg("err", "Ye files nahi chalengi: " + bad.map(f => f.name).join(", ")) : $("msg").className = "msg";
+    bad.length ? msg("err", "These files are not supported: " + bad.map(f => f.name).join(", ")) : $("msg").className = "msg";
     const fresh = add.map(f => ({ file: f, n: null, sel: new Set(), thumbs: [], loading: true, open: false }));
     items.push(...fresh); renderList();
     for (const it of fresh) { await inspect(it); it.loading = false; }
@@ -296,8 +296,8 @@
     opt[sg.dataset.k] = b.dataset.v;
     sg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
     if (sg.dataset.k === "private") $("privHint").textContent = b.dataset.v === "1"
-      ? "🔒 Shop wala aapki file na khol payega, na uska naam dekh payega. Wo sirf print kar sakta hai. Kaam khatam hote hi file mita di jaayegi."
-      : "Shop wala file khol kar dekh sakta hai (jaise koi galti ho to bata sake).";
+      ? "🔒 The shop cannot open your files or see their names. It can only print them. Files are deleted as soon as the order is complete."
+      : "The shop can open your files, for example to point out a problem before printing.";
     estimate();
   });
   $("minus").onclick = () => { copies = Math.max(1, copies - 1); $("copies").textContent = copies; estimate(); };
@@ -309,7 +309,7 @@
     for (const it of items) { if (it.n == null) unknown++; else sheets += Math.ceil(it.sel.size / nup); }
     const total = sheets * copies * rate;
     $("est").textContent = rs(total) + (unknown ? " +" : "");
-    $("estPages").textContent = items.length ? `${sheets * copies} kaagaz${unknown ? ` • ${unknown} file ke page shop par ginenge` : ""}` : "File chuniye";
+    $("estPages").textContent = items.length ? `${sheets * copies} ${sheets * copies === 1 ? "sheet" : "sheets"}${unknown ? ` • pages of ${unknown} file(s) will be counted at the shop` : ""}` : "Choose files";
   }
 
   function upload(it, orderId) {
@@ -323,25 +323,25 @@
       const x = new XMLHttpRequest(); x.open("POST", `/api/shop/${code}/files`);
       x.upload.onprogress = e => { if (e.lengthComputable) $("bar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%"; };
       x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch (e) {} res(x.status === 200 && j.ok ? { ok: true, token: j.token } : { ok: false, error: j.error || "Error " + x.status }); };
-      x.onerror = () => res({ ok: false, error: "Internet check kijiye" });
+      x.onerror = () => res({ ok: false, error: "Network error. Check your internet connection." });
       x.send(fd);
     });
   }
   $("send").onclick = async () => {
     if (addTo && !$("cname").value.trim()) $("cname").value = saved().name || "Customer";
     const name = $("cname").value.trim();
-    if (!name) { $("cname").focus(); return msg("err", "Pehle apna naam likhiye"); }
+    if (!name) { $("cname").focus(); return msg("err", "Please enter your name"); }
     const empty = items.find(it => it.n != null && it.sel.size === 0);
-    if (empty) return msg("err", `"${empty.file.name}" ka koi page nahi chuna`);
+    if (empty) return msg("err", `No pages selected in "${empty.file.name}"`);
     const lockedF = items.find(it => it.locked);
-    if (lockedF) return msg("err", `"${lockedF.file.name}" ka password pehle daaliye`);
+    if (lockedF) return msg("err", `Enter the password for "${lockedF.file.name}" first`);
     store({ name, mobile: $("cmob").value.trim() });
     const orderId = addTo ? addTo.order : (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "" + Math.random()).replace(/[^a-z0-9]/gi, "").slice(0, 32);
     $("send").disabled = true; $("bar").style.display = "block";
     let token = null; const errs = [];
     for (let i = 0; i < items.length; i++) {
       $("bar").firstElementChild.style.width = "0";
-      msg("info", `${i + 1}/${items.length}: ${items[i].file.name} bhej rahe hain…`);
+      msg("info", `${i + 1}/${items.length}: sending ${items[i].file.name}…`);
       const r = await upload(items[i], orderId);
       if (r.ok) token = r.token; else errs.push(`${items[i].file.name}: ${r.error}`);
     }
@@ -355,9 +355,9 @@
 
   // ---------- status
   const STATE = {
-    receiving: ["⏳ File shop tak ja rahi hai…", ""], waiting: ["🕐 Line mein hai", ""],
-    printing: ["🖨 Aapka print ho raha hai", "Bas thodi der…"], ready: ["✅ Taiyaar hai! Counter se le lijiye", ""],
-    done: ["🙏 Print le liya gaya. Dhanyavaad!", ""], rejected: ["❌ Shop ne ye order nahi liya", ""], cancelled: ["Order cancel ho gaya", ""],
+    receiving: ["⏳ Sending your files to the shop…", ""], waiting: ["🕐 In queue", ""],
+    printing: ["🖨 Printing your order", "Almost done…"], ready: ["✅ Ready! Please collect it at the counter", ""],
+    done: ["🙏 Collected. Thank you!", ""], rejected: ["❌ The shop declined this order", ""], cancelled: ["Order cancelled", ""],
   };
   let timer = null, lastState = "";
   async function showStatus() {
@@ -368,13 +368,13 @@
     if (r && r.ok) {
       const [title, sub] = STATE[r.status] || [r.status, ""];
       $("state").textContent = title; $("state").className = "state" + (r.status === "ready" ? " ready" : "") + (["waiting", "receiving", "printing"].includes(r.status) ? " pulse" : "");
-      $("sub").textContent = r.status === "waiting" ? (r.ahead ? `Aapke aage ${r.ahead} order hain` : "Aapka number agla hai") : (r.message && r.status !== "ready" ? r.message : sub);
-      $("olist").innerHTML = r.files.map(f => `<li><span class="n">📄 ${esc(f.name)}</span><span class="s">${f.status === "error" ? "❌ " + esc(f.message || "") : f.sheets == null ? (f.status === "receiving" ? "…" : "? kaagaz") : `${f.sheets} × ${f.copies} ${f.color === "color" ? "🎨" : "⚫"} = ${rs(f.price)}`}</span></li>`).join("")
+      $("sub").textContent = r.status === "waiting" ? (r.ahead ? `${r.ahead} ${r.ahead === 1 ? "order" : "orders"} ahead of you` : "You are next") : (r.message && r.status !== "ready" ? r.message : sub);
+      $("olist").innerHTML = r.files.map(f => `<li><span class="n">📄 ${esc(f.name)}</span><span class="s">${f.status === "error" ? "❌ " + esc(f.message || "") : f.sheets == null ? (f.status === "receiving" ? "…" : "? sheets") : `${f.sheets} × ${f.copies} ${f.color === "color" ? "🎨" : "⚫"} = ${rs(f.price)}`}</span></li>`).join("")
         + (s.errs && s.errs.length ? s.errs.map(e => `<li><span class="n">❌ ${esc(e)}</span></li>`).join("") : "");
-      $("otot").textContent = r.status === "receiving" ? "gin rahe hain…" : rs(r.total) + (r.total_known ? "" : " +") + (r.discount ? " (shop ne tay kiya)" : "");
+      $("otot").textContent = r.status === "receiving" ? "calculating…" : rs(r.total) + (r.total_known ? "" : " +") + (r.discount ? " (set by shop)" : "");
       $("privPill").classList.toggle("hidden", !r.private);
-      document.title = (r.status === "ready" ? "✅ Taiyaar! " : `#${s.token} `) + (rates.name || "Print");
-      $("payHint").textContent = r.total_known ? "Paisa counter par dijiye." : "Kuch file ke page counter par gine jaayenge.";
+      document.title = (r.status === "ready" ? "✅ Ready! " : `#${s.token} `) + (rates.name || "Print");
+      $("payHint").textContent = r.total_known ? "Please pay at the counter." : "Some pages will be counted at the counter.";
       const active = ["receiving", "waiting", "printing", "ready"].includes(r.status);
       $("cancel").classList.toggle("hidden", !["receiving", "waiting"].includes(r.status));
       $("addMore").classList.toggle("hidden", !["receiving", "waiting"].includes(r.status));
@@ -386,22 +386,22 @@
       lastState = r.status;
       if (!active) { clearTimeout(timer); return; }
     } else if (r && r.status === 404 && r.error && r.error.includes("Order")) {
-      $("state").textContent = "Order purana ho gaya"; $("sub").textContent = ""; $("again").classList.remove("hidden"); return;
+      $("state").textContent = "This order has expired"; $("sub").textContent = ""; $("again").classList.remove("hidden"); return;
     } else {
-      $("sub").textContent = (r && r.error) || "Shop se jud nahi paaye, dobara koshish…";
+      $("sub").textContent = (r && r.error) || "Cannot reach the shop. Retrying…";
     }
     clearTimeout(timer); timer = setTimeout(showStatus, 3000);
   }
   $("cancel").onclick = async () => {
-    if (!confirm("Order cancel karein?")) return;
+    if (!confirm("Cancel this order?")) return;
     const r = await api(`/api/shop/${code}/orders/${saved().order}/cancel`, { method: "POST" });
-    if (!r.ok) alert(r.error || "Cancel nahi hua");
+    if (!r.ok) alert(r.error || "Could not cancel the order");
     showStatus();
   };
   $("again").onclick = () => {
     const s = saved();
     if (["receiving", "waiting", "printing", "ready"].includes(lastState) &&
-        !confirm(`Token #${s.token} ka order chalta rahega. Ek naya alag order banayein?`)) return;
+        !confirm(`Your order with token #${s.token} will continue. Start a separate new order?`)) return;
     clearTimeout(timer); store({ order: null, token: null, errs: [] }); lastState = "";
     setAddMode(false);
     $("status").classList.add("hidden"); $("form").classList.remove("hidden"); $("msg").className = "msg";

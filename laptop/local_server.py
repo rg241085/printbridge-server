@@ -72,7 +72,7 @@ class LocalServer:
             def _auth(self):
                 if secrets.compare_digest(self.headers.get("X-PB-Key", ""), ctx["key"]()):
                     return True
-                self._send(401, {"ok": False, "error": "Laptop ne pehchaana nahi. Laptop ka 'Bina internet' QR dobara scan kijiye."})
+                self._send(401, {"ok": False, "error": "This device is not recognised. Scan the 'Offline QR' code on the computer again."})
                 return False
 
             def do_GET(self):
@@ -89,11 +89,11 @@ class LocalServer:
                         return self._send(200, {"ok": True, "printers": names, "default": default, "status": status})
                     except Exception as e:
                         return self._send(500, {"ok": False, "error": str(e)})
-                self._send(404, {"ok": False, "error": "nahi mila"})
+                self._send(404, {"ok": False, "error": "Not found"})
 
             def do_POST(self):
                 if self.path.split("?")[0] != "/api/print":
-                    return self._send(404, {"ok": False, "error": "nahi mila"})
+                    return self._send(404, {"ok": False, "error": "Not found"})
                 if not self._auth():
                     return
                 try:
@@ -101,7 +101,7 @@ class LocalServer:
                 except ValueError:
                     size = 0
                 if size <= 0 or size > MAX_MB * 1024 * 1024:
-                    return self._send(413, {"ok": False, "error": f"File khaali hai ya bahut badi hai (max {MAX_MB} MB)"})
+                    return self._send(413, {"ok": False, "error": f"File is empty or too large (maximum {MAX_MB} MB)"})
                 name = os.path.basename(unquote(self.headers.get("X-Filename", "file")))[:120] or "file"
                 ext = os.path.splitext(name)[1].lower()
                 path = os.path.join(ctx["jobs_dir"], f"local_{uuid.uuid4().hex[:8]}{ext}")
@@ -131,7 +131,7 @@ class LocalServer:
         try:
             self.httpd = ThreadingHTTPServer(("0.0.0.0", PORT), H)
         except OSError as e:
-            self.error = f"Port {PORT} busy hai: {e}"
+            self.error = f"Port {PORT} is in use: {e}"
             return False
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         return True

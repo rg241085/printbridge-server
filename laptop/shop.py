@@ -98,10 +98,10 @@ class ShopQueue:
             else:
                 new = False
                 if o["status"] not in ("receiving", "waiting"):
-                    raise pb.PrintError("Is order ka print shuru ho chuka hai, ab isme file nahi jud sakti. "
-                                        "'Naya alag order' banaiye.")
+                    raise pb.PrintError("Printing of this order has already started, so files can no longer be added. "
+                                        "Please start a new order.")
                 if len(o["files"]) >= MAX_FILES_PER_ORDER:
-                    raise pb.PrintError(f"Ek order mein {MAX_FILES_PER_ORDER} se zyada files nahi")
+                    raise pb.PrintError(f"An order cannot contain more than {MAX_FILES_PER_ORDER} files")
                 o["status"] = "receiving"
             opts = pb.clean_opts(opts)
             fid = f"{order_id[:6]}_{len(o['files'])}"
@@ -155,10 +155,10 @@ class ShopQueue:
         with self.lock:
             o = self.orders.get(order_id)
             if not o:
-                return False, "Order nahi mila"
+                return False, "Order not found"
             if o["status"] not in ("receiving", "waiting"):
-                return False, "Ab cancel nahi ho sakta (print shuru ho chuka hai). Counter par baat kijiye."
-            o["status"], o["message"] = "cancelled", "Aapne cancel kiya"
+                return False, "This order can no longer be cancelled because printing has started. Please ask at the counter."
+            o["status"], o["message"] = "cancelled", "Cancelled by customer"
             self._drop_files(o)
             self._save()
         self.on_change("update", o)
@@ -222,7 +222,7 @@ class ShopQueue:
         """print_fn(path, printer, copies, opts, stats) -> message. Har file chhaapo."""
         o = self.orders.get(order_id)
         if not o or o["status"] not in ("waiting", "ready"):
-            return False, "Ye order abhi print ke liye taiyaar nahi"
+            return False, "This order is not ready to print yet"
         self.set_status(order_id, "printing")
         errors = []
         for f in o["files"]:
@@ -241,9 +241,9 @@ class ShopQueue:
             self._recalc(o)
             self._save()
         if errors and all(f["status"] == "error" for f in o["files"]):
-            self.set_status(order_id, "waiting", "Print nahi ho paaya: " + "; ".join(errors)[:200])
+            self.set_status(order_id, "waiting", "Printing failed: " + "; ".join(errors)[:200])
             return False, "; ".join(errors)
-        self.set_status(order_id, "ready", "Print ho gaya. Counter se le lijiye.")
+        self.set_status(order_id, "ready", "Printed. Please collect it at the counter.")
         return True, "; ".join(errors)
 
     def _drop_files(self, o):

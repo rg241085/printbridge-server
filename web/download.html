@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a56db">
-<title>PrintBridge: Mobile se seedha print</title>
-<meta name="description" content="Phone se seedha laptop ke printer par print. WhatsApp se Share karke print. Free.">
+<title>PrintBridge — Print from your phone to any printer</title>
+<meta name="description" content="Print documents from your phone to any printer connected to your Windows computer. Share from WhatsApp or Gallery and print instantly. Free.">
 <link rel="icon" href="/icons/icon-192.png">
 <style>
   :root { --blue:#1a56db; --deep:#0f3aa8; --bg:#f3f5f9; --text:#1f2937; --muted:#6b7280; }
@@ -46,14 +46,14 @@
 <body>
 <section class="hero">
   <div class="wrap">
-    <nav><img src="/icons/icon-192.png" alt="">PrintBridge <a class="app" href="/?app=1">Phone app kholiye →</a></nav>
-    <h1>Mobile ke document seedha printer se nikaaliye</h1>
-    <p class="lead">Ab file pehle laptop par bhejne ki zaroorat nahi. WhatsApp ya Gallery mein <b>Share → PrintBridge</b> dabaiye, aur print laptop ke printer se nikal aayega. Phone ghar par ho ya kahin aur, print chala jaayega.</p>
+    <nav><img src="/icons/icon-192.png" alt="">PrintBridge <a class="app" href="/?app=1">Open phone app →</a></nav>
+    <h1>Print from your phone to any printer</h1>
+    <p class="lead">No more emailing files to your computer. Tap <b>Share → PrintBridge</b> in WhatsApp or Gallery and the document prints on the printer connected to your Windows computer — from home, the office or anywhere else.</p>
     <a class="dl" id="dlBtn" href="https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-      Windows ke liye download (Free)
+      Download for Windows (Free)
     </a>
-    <div class="sub">Windows 10 / 11 &nbsp;•&nbsp; Kuch aur install karne ki zaroorat nahi</div>
+    <div class="sub">Windows 10 / 11 &nbsp;•&nbsp; No additional software required</div>
   </div>
 </section>
 
@@ -61,52 +61,55 @@
   <div class="steps">
     <div class="card">
       <div class="num">1</div>
-      <h3>Laptop par program chalaiye</h3>
-      <p>Jis laptop/computer se printer juda hai, us par <b>PrintBridge.exe</b> download karke double-click kijiye. Window mein <b>QR code</b>, <b>Laptop ID</b> aur <b>PIN</b> dikhenge.</p>
-      <div class="note">⚠️ Windows "Windows protected your PC" dikhaye to <b>More info</b> → <b>Run anyway</b> dabaiye. Ye naye programs ke liye aam baat hai.</div>
+      <h3>Install on your computer</h3>
+      <p>On the computer connected to your printer, download <b>PrintBridge.exe</b> and run it. The window shows a <b>QR code</b>, a <b>Computer ID</b> and a <b>PIN</b>.</p>
+      <div class="note">⚠️ If Windows shows "Windows protected your PC", click <b>More info</b> → <b>Run anyway</b>. This is normal for newly published apps.</div>
     </div>
     <div class="card">
       <div class="num">2</div>
-      <h3>Phone ko laptop se jodiye</h3>
-      <p>Phone par app kholiye aur <b>📷 QR scan</b> dabakar laptop ka QR scan kijiye, ya <b>Laptop ID + PIN</b> daaliye. Laptop par <b>Allow</b> dabaiye. Bas, jud gaya!</p>
+      <h3>Connect your phone</h3>
+      <p>Open the phone app, tap <b>📷 Scan QR code</b> and scan the code on your computer, or enter the <b>Computer ID and PIN</b>. Click <b>Allow</b> on the computer and you're connected.</p>
       <div class="qr">
-        <img src="/qr.svg" alt="Phone app ka QR code">
-        <p style="font-size:14px">Phone ke camera se scan kijiye<br>ya phone mein kholiye:<br><b id="siteUrl">printbridge.onrender.com</b></p>
+        <img src="/qr.svg" alt="QR code for the phone app">
+        <p style="font-size:14px">Scan with your phone camera<br>or open on your phone:<br><b id="siteUrl">printbridge.onrender.com</b></p>
       </div>
     </div>
     <div class="card">
       <div class="num">3</div>
-      <h3>Share karke print kijiye</h3>
-      <p>Phone app ko install kijiye (app mein "Install karein" button). Phir:</p>
+      <h3>Share and print</h3>
+      <p>Install the phone app using the "Install" button in the app. Then:</p>
       <ul>
-        <li>WhatsApp/Gallery mein file par <b>Share → PrintBridge</b></li>
-        <li><b>Print karein</b> dabaiye, ho gaya ✅</li>
+        <li>In WhatsApp or Gallery, tap <b>Share → PrintBridge</b></li>
+        <li>Tap <b>Print</b> — done ✅</li>
       </ul>
     </div>
   </div>
 
-  <h2>Kya-kya milta hai</h2>
+  <h2>Features</h2>
   <div class="feat">
-    <div class="card"><div class="ic">📲</div><h4>WhatsApp se seedha</h4><p>Share menu se ek tap mein print. Laptop par file bhejne ka jhanjhat khatam.</p></div>
-    <div class="card"><div class="ic">🌍</div><h4>Kahin se bhi</h4><p>Phone WiFi par ho ya mobile data par, print laptop ke printer par hi aayega.</p></div>
-    <div class="card"><div class="ic">📄</div><h4>Har file</h4><p>PDF, photo, Word, Excel, PowerPoint. Ek saath kai files aur kai copies.</p></div>
-    <div class="card"><div class="ic">🔒</div><h4>Surakshit</h4><p>Naya phone laptop ki permission se hi judta hai. Print hote hi file server se delete ho jaati hai.</p></div>
-    <div class="card"><div class="ic">💻</div><h4>Kai laptop</h4><p>Ghar, office, shop: ek phone se kai laptops ke printers par print.</p></div>
-    <div class="card"><div class="ic">🆓</div><h4>Free</h4><p>Koi account nahi, koi sign-up nahi. Download kijiye aur shuru ho jaaiye.</p></div>
+    <div class="card"><div class="ic">📲</div><h4>Print from WhatsApp</h4><p>Print any document in one tap from the Share menu.</p></div>
+    <div class="card"><div class="ic">🌍</div><h4>Print from anywhere</h4><p>Wi-Fi or mobile data — your document always reaches your printer.</p></div>
+    <div class="card"><div class="ic">📄</div><h4>All common formats</h4><p>PDF, photos, Word, Excel and PowerPoint. Multiple files and copies at once.</p></div>
+    <div class="card"><div class="ic">📷</div><h4>Document scanner</h4><p>Scan documents with automatic edge detection, filters and multi-page PDF export.</p></div>
+    <div class="card"><div class="ic">🪪</div><h4>ID cards & passport photos</h4><p>Print ID cards at actual size and passport photos in standard sizes.</p></div>
+    <div class="card"><div class="ic">🏪</div><h4>Print shop mode</h4><p>Customers order by scanning a QR code. Manage the queue, pricing and reports from one dashboard.</p></div>
+    <div class="card"><div class="ic">💻</div><h4>Computer to computer</h4><p>Print from one computer to a printer connected to another, over the internet.</p></div>
+    <div class="card"><div class="ic">🔒</div><h4>Secure</h4><p>New devices connect only with your approval. Files are deleted from the server as soon as they print.</p></div>
+    <div class="card"><div class="ic">🆓</div><h4>Free</h4><p>No account and no sign-up. Download and start printing.</p></div>
   </div>
 
-  <h2>Zaroori baatein</h2>
+  <h2>Requirements</h2>
   <div class="card">
     <ul>
-      <li>Printer us laptop se juda (aur Windows mein install) hona chahiye.</li>
-      <li>Word / Excel / PowerPoint files ke liye laptop par MS Office ya LibreOffice hona chahiye. PDF aur photo bina kisi extra software ke print hote hain.</li>
-      <li>Laptop on ho aur PrintBridge chal raha ho (ye Windows ke saath apne aap start hota hai).</li>
-      <li>iPhone par Share menu wala tareeka nahi chalta. Wahan app kholkar "File chuniye" se print kijiye.</li>
+      <li>The printer must be connected to the computer and installed in Windows.</li>
+      <li>Word, Excel and PowerPoint files require Microsoft Office or LibreOffice on the computer. PDFs and photos print without any extra software.</li>
+      <li>The computer must be switched on with PrintBridge running (it starts automatically with Windows).</li>
+      <li>On iPhone, the Share menu shortcut is not available. Open the app and tap "Choose files" instead.</li>
     </ul>
   </div>
 </main>
 
-<footer>PrintBridge • Mobile se seedha print</footer>
+<footer>© PrintBridge • Print from your phone to any printer</footer>
 
 <script>
   document.getElementById("siteUrl").textContent = location.host;

@@ -15,11 +15,11 @@ F = "Segoe UI"
 C = {"blue": "#1a56db", "light": "#f5f7fb", "line": "#e5e7eb", "text": "#111827", "mut": "#6b7280",
      "green": "#059669", "red": "#dc2626", "amber": "#b45309"}
 SELF = "__self__"
-FILE_TYPES = [("Print hone wali files", "*.pdf *.jpg *.jpeg *.png *.bmp *.gif *.webp *.txt *.doc *.docx *.xls *.xlsx "
-                                        "*.ppt *.pptx *.rtf *.odt"), ("Sab files", "*.*")]
-PAGES = {"Saare page": "all", "Odd page (1,3,5…)": "odd", "Even page (2,4,6…)": "even"}
-DUPLEX = {"Nahi (ek taraf)": "off", "Haan - kitaab jaisa": "long", "Haan - upar palte": "short"}
-PAPER = {"Printer jaisa": "default", "A4": "a4", "Letter": "letter", "Legal": "legal", "A3": "a3", "A5": "a5"}
+FILE_TYPES = [("Printable files", "*.pdf *.jpg *.jpeg *.png *.bmp *.gif *.webp *.txt *.doc *.docx *.xls *.xlsx "
+                                        "*.ppt *.pptx *.rtf *.odt"), ("All files", "*.*")]
+PAGES = {"All pages": "all", "Odd pages (1, 3, 5…)": "odd", "Even pages (2, 4, 6…)": "even"}
+DUPLEX = {"Off (one-sided)": "off", "On - long edge": "long", "On - short edge": "short"}
+PAPER = {"Printer default": "default", "A4": "a4", "Letter": "letter", "Legal": "legal", "A3": "a3", "A5": "a5"}
 
 _open = {}
 
@@ -36,7 +36,7 @@ def open_send(root, m, files=None):
         return w
     win = tk.Toplevel(root)
     _open["win"] = win
-    win.title("PrintBridge - Print karein")
+    win.title("PrintBridge - Print")
     win.configure(bg="white")
     sh = win.winfo_screenheight()
     win.geometry(f"600x{min(720, sh - 80)}+60+20")
@@ -49,14 +49,14 @@ def open_send(root, m, files=None):
     # ------------------------------------------------ header
     head = tk.Frame(win, bg=C["blue"], padx=18, pady=12)
     head.pack(fill="x")
-    tk.Label(head, text="Print karein", font=(F, 17, "bold"), fg="white", bg=C["blue"]).pack(anchor="w")
-    tk.Label(head, text="Isi laptop ke printer par, ya kisi doosre laptop ke printer par (internet ke raaste)",
+    tk.Label(head, text="Print files", font=(F, 17, "bold"), fg="white", bg=C["blue"]).pack(anchor="w")
+    tk.Label(head, text="Print on this computer, or on a printer connected to another computer over the internet",
              font=(F, 9), fg="#dbeafe", bg=C["blue"]).pack(anchor="w")
 
     # neeche ka Print button pehle pack (taaki chhoti screen par bhi hamesha dikhe)
     foot = tk.Frame(win, bg="white", padx=18, pady=10)
     foot.pack(side="bottom", fill="x")
-    go = tk.Button(foot, text="Print karein", font=(F, 13, "bold"), bg=C["blue"], fg="white", relief="flat", bd=0,
+    go = tk.Button(foot, text="Print", font=(F, 13, "bold"), bg=C["blue"], fg="white", relief="flat", bd=0,
                    activebackground="#1e40af", activeforeground="white", cursor="hand2", pady=9)
     go.pack(fill="x")
     log = tk.Listbox(foot, height=4, font=(F, 9), bd=1, relief="solid", highlightthickness=0, activestyle="none")
@@ -88,9 +88,9 @@ def open_send(root, m, files=None):
                 size = "?"
             lb.insert("end", f"  {os.path.basename(p)}    ({size})")
         if not files_list:
-            lb.insert("end", "  (abhi koi file nahi - 'File jodiye' dabaiye)")
+            lb.insert("end", "  (no files yet — click 'Add files')")
             lb.itemconfig(0, fg=C["mut"])
-        go.configure(text=f"Print karein ({len(files_list)} files)" if len(files_list) > 1 else "Print karein")
+        go.configure(text=f"Print {len(files_list)} files" if len(files_list) > 1 else "Print")
 
     def add_files(paths):
         bad = []
@@ -104,11 +104,11 @@ def open_send(root, m, files=None):
                 files_list.append(p)
         show_files()
         if bad:
-            messagebox.showwarning("Print karein", "Ye files print nahi ho sakti:\n" + "\n".join(bad[:8]), parent=win)
+            messagebox.showwarning("Print", "These files cannot be printed:\n" + "\n".join(bad[:8]), parent=win)
     win._add_files = add_files
 
     def pick():
-        paths = filedialog.askopenfilenames(parent=win, title="Print ke liye files chuniye", filetypes=FILE_TYPES)
+        paths = filedialog.askopenfilenames(parent=win, title="Choose files to print", filetypes=FILE_TYPES)
         if paths:
             add_files(paths)
 
@@ -118,17 +118,17 @@ def open_send(root, m, files=None):
                 files_list.pop(i)
         show_files()
 
-    for t, cmd in [("+ File jodiye", pick), ("Hataiye", remove_sel), ("Sab saaf", lambda: (files_list.clear(), show_files()))]:
+    for t, cmd in [("+ Add files", pick), ("Remove", remove_sel), ("Clear all", lambda: (files_list.clear(), show_files()))]:
         ttk.Button(fb, text=t, command=cmd, width=13).pack(pady=(0, 4))
 
     # ------------------------------------------------ 2. kahan
-    section("2. Kis printer se nikle?")
+    section("2. Choose a printer")
     tr = tk.Frame(body, bg="white")
     tr.pack(fill="x")
     tbox = ttk.Combobox(tr, state="readonly", width=40)
     tbox.pack(side="left")
-    ttk.Button(tr, text="+ Doosra laptop jodiye", command=lambda: pair_dialog()).pack(side="left", padx=(8, 0))
-    ttk.Button(tr, text="Hataiye", command=lambda: remove_target()).pack(side="left", padx=(6, 0))
+    ttk.Button(tr, text="+ Add computer", command=lambda: pair_dialog()).pack(side="left", padx=(8, 0))
+    ttk.Button(tr, text="Remove", command=lambda: remove_target()).pack(side="left", padx=(6, 0))
     tstat = tk.Label(body, font=(F, 9), bg="white", fg=C["mut"], anchor="w")
     tstat.pack(fill="x", pady=(3, 0))
     pr = tk.Frame(body, bg="white")
@@ -140,7 +140,7 @@ def open_send(root, m, files=None):
     pbox.pack(side="left", padx=(6, 0))
 
     def choices():
-        return [("Isi laptop par (yahan ka printer)", SELF)] + [
+        return [("This computer (local printers)", SELF)] + [
             (f"{t.get('name') or t['id']}  ({t['id']})", t["id"]) for t in targets]
 
     def fill_targets(select=None):
@@ -163,7 +163,7 @@ def open_send(root, m, files=None):
             m.CFG["send_last"] = t["id"] if t else SELF
             m.save_config()
         pbox["values"] = []
-        pvar.set("…printer dhoondh rahe hain")
+        pvar.set("…looking for printers")
         tstat.configure(text="", fg=C["mut"])
         state["printers_for"] = t["id"] if t else SELF
         threading.Thread(target=load_printers, args=(t,), daemon=True).start()
@@ -175,7 +175,7 @@ def open_send(root, m, files=None):
             if t is None:
                 names, default, status, _caps = m.pb.list_printers()
                 default = m.CFG.get("printer") if m.CFG.get("printer") in names else default
-                q.put(("printers", key, names, default, "Is laptop ke printer", status))
+                q.put(("printers", key, names, default, "Local printers", status))
                 return
             d = sender.device(m.server_base(), t["id"])
             if not d.get("online"):
@@ -195,7 +195,7 @@ def open_send(root, m, files=None):
         t = cur_target()
         if not t:
             return
-        if messagebox.askyesno("Laptop hataiye", f"'{t.get('name')}' ({t['id']}) ko list se hata dein?", parent=win):
+        if messagebox.askyesno("Remove computer", f"Remove '{t.get('name')}' ({t['id']}) from the list?", parent=win):
             targets[:] = [x for x in targets if x["id"] != t["id"]]
             with m.CFG_LOCK:
                 m.save_config()
@@ -203,14 +203,14 @@ def open_send(root, m, files=None):
 
     def pair_dialog(prefill=""):
         d = tk.Toplevel(win)
-        d.title("Doosra laptop jodiye")
+        d.title("Add computer")
         d.configure(bg="white", padx=20, pady=14)
         d.transient(win)
         d.grab_set()
-        tk.Label(d, text="Jis laptop se printer juda hai, us par PrintBridge kholiye.\n"
-                         "Wahan dikh rahe Laptop ID aur PIN yahan likhiye.",
+        tk.Label(d, text="Open PrintBridge on the computer that the printer is connected to.\n"
+                         "Enter the Computer ID and PIN shown there.",
                  font=(F, 10), bg="white", justify="left").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
-        tk.Label(d, text="Laptop ID", font=(F, 10), bg="white").grid(row=1, column=0, sticky="w")
+        tk.Label(d, text="Computer ID", font=(F, 10), bg="white").grid(row=1, column=0, sticky="w")
         e_id = ttk.Entry(d, width=22, font=("Consolas", 12))
         e_id.insert(0, prefill or "PB-")
         e_id.grid(row=1, column=1, pady=4, sticky="w")
@@ -219,7 +219,7 @@ def open_send(root, m, files=None):
         e_pin.grid(row=2, column=1, pady=4, sticky="w")
         info = tk.Label(d, text="", font=(F, 9), bg="white", fg=C["mut"], justify="left", wraplength=340)
         info.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        btn = ttk.Button(d, text="Jodiye")
+        btn = ttk.Button(d, text="Connect")
         btn.grid(row=4, column=1, sticky="e", pady=(10, 0))
         e_id.focus_set()
         e_id.icursor("end")
@@ -236,27 +236,27 @@ def open_send(root, m, files=None):
                 m.save_config()
             d.destroy()
             fill_targets(res["id"])
-            add_log(f"Juda: {res['name']} ({res['id']})")
+            add_log(f"Connected: {res['name']} ({res['id']})")
 
         def go_pair(_e=None):
             tid = sender.norm_id(e_id.get())
             pin = "".join(ch for ch in e_pin.get() if ch.isdigit())
             if not tid:
-                info.configure(text="Laptop ID sahi likhiye (jaise PB-7K3M-9QX2)", fg=C["red"])
+                info.configure(text="Enter a valid Computer ID (e.g. PB-7K3M-9QX2)", fg=C["red"])
                 return
             if tid == m.CFG["device_id"]:
-                info.configure(text="Ye to isi laptop ki ID hai. Is laptop ke printer ke liye upar "
-                                    "'Isi laptop par' chuniye.", fg=C["red"])
+                info.configure(text="This is the ID of this computer. To use local printers, "
+                                    "choose 'This computer' above.", fg=C["red"])
                 return
             if len(pin) != 6:
-                info.configure(text="PIN 6 ank ka hota hai", fg=C["red"])
+                info.configure(text="The PIN must be 6 digits", fg=C["red"])
                 return
             btn.configure(state="disabled")
-            info.configure(text="Jod rahe hain… doosre laptop par 'Allow' dabana pad sakta hai.", fg=C["mut"])
+            info.configure(text="Connecting… you may need to click 'Allow' on the other computer.", fg=C["mut"])
 
             def run():
                 try:
-                    res = sender.pair(m.server_base(), tid, pin, "Laptop: " + (m.CFG.get("name") or "PC"))
+                    res = sender.pair(m.server_base(), tid, pin, "PC: " + (m.CFG.get("name") or "Computer"))
                 except Exception as e:
                     res = e
                 q.put(("paired", done, res))   # window wale thread mein hi jawab dikhao
@@ -279,33 +279,33 @@ def open_send(root, m, files=None):
     lbl(0, 0, "Copies")
     copies = tk.Spinbox(sg, from_=1, to=50, width=6, font=(F, 10), justify="center")
     copies.grid(row=0, column=1, sticky="w")
-    lbl(0, 2, "Rang")
+    lbl(0, 2, "Color")
     color = tk.StringVar(win, value="color")
     win._vars.append(color)
     cf = tk.Frame(sg, bg="white")
     cf.grid(row=0, column=3, sticky="w")
-    for t, v in [("Color", "color"), ("Black & White", "bw")]:
+    for t, v in [("Color", "color"), ("Black & white", "bw")]:
         tk.Radiobutton(cf, text=t, variable=color, value=v, bg="white", activebackground="white", font=(F, 9)).pack(side="left")
-    lbl(1, 0, "Kaun se page")
+    lbl(1, 0, "Pages")
     pages = ttk.Combobox(sg, values=list(PAGES), width=18)
-    pages.set("Saare page")
+    pages.set("All pages")
     pages.grid(row=1, column=1, sticky="w")
-    lbl(1, 2, "Ek kaagaz par")
-    nup = ttk.Combobox(sg, values=["1 page", "2 page", "4 page"], state="readonly", width=10)
-    nup.set("1 page")
+    lbl(1, 2, "Pages per sheet")
+    nup = ttk.Combobox(sg, values=["1", "2", "4"], state="readonly", width=10)
+    nup.set("1")
     nup.grid(row=1, column=3, sticky="w")
-    lbl(2, 0, "Dono taraf")
+    lbl(2, 0, "Two-sided")
     duplex = ttk.Combobox(sg, values=list(DUPLEX), state="readonly", width=18)
-    duplex.set("Nahi (ek taraf)")
+    duplex.set("Off (one-sided)")
     duplex.grid(row=2, column=1, sticky="w")
-    lbl(2, 2, "Kaagaz")
+    lbl(2, 2, "Paper size")
     paper = ttk.Combobox(sg, values=list(PAPER), state="readonly", width=12)
-    paper.set("Printer jaisa")
+    paper.set("Printer default")
     paper.grid(row=2, column=3, sticky="w")
     lbl(3, 0, "PDF password")
     pw = ttk.Entry(sg, width=20, show="•")
     pw.grid(row=3, column=1, sticky="w")
-    tk.Label(sg, text="Page: '1-3, 5' bhi likh sakte hain", font=(F, 8), fg=C["mut"], bg="white").grid(
+    tk.Label(sg, text="Custom pages: e.g. '1-3, 5'", font=(F, 8), fg=C["mut"], bg="white").grid(
         row=3, column=2, columnspan=2, sticky="w", padx=(14, 0))
 
     def opts():
@@ -330,7 +330,7 @@ def open_send(root, m, files=None):
         vals = pbox["values"]
         vals = (vals,) if isinstance(vals, str) else tuple(vals or ())
         if printer not in vals:
-            messagebox.showinfo("Print karein", "Pehle printer chuniye (ya laptop online hone ka intezaar kijiye).", parent=win)
+            messagebox.showinfo("Print", "Please select a printer (or wait for the computer to come online).", parent=win)
             return
         try:
             n = max(1, min(int(copies.get()), 50))
@@ -338,7 +338,7 @@ def open_send(root, m, files=None):
             n = 1
         o, todo = opts(), list(files_list)
         state["busy"] = True
-        go.configure(state="disabled", text="Bhej rahe hain…")
+        go.configure(state="disabled", text="Sending…")
 
         def run():
             ok = 0
@@ -346,21 +346,21 @@ def open_send(root, m, files=None):
                 name = os.path.basename(path)
                 try:
                     if t is None:
-                        q.put(("log", f"Chhap raha hai: {name}"))
+                        q.put(("log", f"Printing: {name}"))
                         m.self_print(path, printer, n, o)
-                        q.put(("log", f"Ho gaya: {name}  ->  {printer}"))
+                        q.put(("log", f"Printed: {name}  ->  {printer}"))
                         ok += 1
                     else:
-                        q.put(("log", f"Bhej rahe hain: {name}  ->  {t.get('name')}"))
-                        jid = sender.send_file(m.server_base(), t, path, n, printer, o, "Laptop: " + (m.CFG.get("name") or "PC"))
+                        q.put(("log", f"Sending: {name}  ->  {t.get('name')}"))
+                        jid = sender.send_file(m.server_base(), t, path, n, printer, o, "PC: " + (m.CFG.get("name") or "Computer"))
                         st, msg = sender.wait_job(m.server_base(), jid, lambda s, mm: q.put(("log", f"   {name}: {mm}")))
                         if st == "done":
                             ok += 1
-                            q.put(("log", f"Ho gaya: {name}  ->  {t.get('name')} / {printer}"))
+                            q.put(("log", f"Printed: {name}  ->  {t.get('name')} / {printer}"))
                         else:
-                            q.put(("log", f"NAHI hua: {name}: {msg}"))
+                            q.put(("log", f"FAILED: {name}: {msg}"))
                 except Exception as e:
-                    q.put(("log", f"NAHI hua: {name}: {e}"))
+                    q.put(("log", f"FAILED: {name}: {e}"))
             q.put(("done", ok, len(todo)))
         threading.Thread(target=run, daemon=True).start()
     go.configure(command=do_print)
@@ -380,9 +380,9 @@ def open_send(root, m, files=None):
                 if ok == total:
                     files_list.clear()
                     show_files()
-                    add_log(f"✓ {ok} file print ho gayi")
+                    add_log(f"✓ {ok} {'file' if ok == 1 else 'files'} printed")
                 else:
-                    messagebox.showwarning("Print karein", f"{total - ok} file print nahi hui. Neeche ka sandesh dekhiye.", parent=win)
+                    messagebox.showwarning("Print", f"{total - ok} of {total} files could not be printed. See the log below for details.", parent=win)
             elif ev[0] == "paired":
                 ev[1](ev[2])
             elif ev[0] == "printers":
@@ -395,15 +395,15 @@ def open_send(root, m, files=None):
                 else:
                     pvar.set("")
                 if note == "offline":
-                    tstat.configure(text="● Ye laptop abhi OFFLINE hai. Us par PrintBridge chalu kijiye, phir yahan "
-                                         "dobara chuniye.", fg=C["red"])
+                    tstat.configure(text="● This computer is OFFLINE. Start PrintBridge on it, then select it "
+                                         "here again.", fg=C["red"])
                 elif note == "unpaired":
-                    tstat.configure(text="● Us laptop ne is laptop ko hata diya hai. '+ Doosra laptop jodiye' se "
-                                         "dobara jodiye.", fg=C["red"])
+                    tstat.configure(text="● That computer has removed this one. Use '+ Add computer' to "
+                                         "connect again.", fg=C["red"])
                 elif note.startswith("err:"):
                     tstat.configure(text="● " + note[4:], fg=C["red"])
                 elif not names:
-                    tstat.configure(text="● Is laptop par koi printer nahi mila", fg=C["amber"])
+                    tstat.configure(text="● No printers found on this computer", fg=C["amber"])
                 else:
                     tstat.configure(text=note if note.startswith("●") else "● " + note, fg=C["green"])
         win.after(250, poll)

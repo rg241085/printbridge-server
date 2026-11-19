@@ -1,7 +1,7 @@
 {
   "name": "PrintBridge",
   "short_name": "PrintBridge",
-  "description": "Phone se seedha laptop ke printer par print",
+  "description": "Print from your phone to any printer connected to your computer",
   "id": "/",
   "start_url": "/",
   "scope": "/",
