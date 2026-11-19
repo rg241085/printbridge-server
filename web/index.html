@@ -290,7 +290,8 @@
     <div class="center big">💻</div>
     <h2 class="center">Laptop jodiye</h2>
     <p class="tip center">Laptop par PrintBridge program kholiye. Usme QR code, Laptop ID aur PIN dikhenge.</p>
-    <button class="btn" id="scanBtn">📷 QR scan karke jodiye</button>
+    <button class="btn" id="scanBtn">📷 QR scan kijiye</button>
+    <p class="hint center" style="margin-top:6px">Laptop ka QR = laptop judega • Print shop ka QR = shop ka page khulega</p>
     <div class="or"><span>ya haath se daaliye</span></div>
     <label class="row" for="pairId">Laptop ID</label>
     <input class="txt" id="pairId" placeholder="PB-XXXX-XXXX" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -329,6 +330,7 @@
       <button class="tile" id="openScan"><i style="background:#e0e7ff">📷</i>Scan<br>PDF</button>
       <button class="tile" id="openId"><i style="background:#dcfce7">🪪</i>ID card<br>print</button>
       <button class="tile" id="openPP"><i style="background:#fef3c7">🧑</i>Passport<br>photo</button>
+      <button class="tile" id="openShopQr"><i style="background:#ede9fe">🏪</i>Shop par<br>print</button>
       <button class="tile hidden" id="openLaptopScan"><i style="background:#fce7f3">🖨</i>Laptop<br>scanner</button>
     </div>
 
@@ -590,7 +592,7 @@
 <div id="scanner" class="hidden">
   <video id="scanVideo" playsinline muted></video>
   <div class="frame"></div>
-  <div class="top">Laptop ki screen par dikh rahe <b>QR code</b> ko is dabbe mein laaiye</div>
+  <div class="top" id="scanHint">Laptop ki screen ya print shop ke counter par lage <b>QR code</b> ko is dabbe mein laaiye</div>
   <div class="bottom"><button id="scanClose">✕ Band karein</button><div id="scanErr"></div></div>
 </div>
 <canvas id="scanCanvas" class="hidden"></canvas>
@@ -719,6 +721,15 @@
     return null;
   }
 
+  // Print shop ka QR: https://<server>/s/<code>
+  function shopUrl(text) {
+    try {
+      const u = new URL(String(text).trim());
+      if (!/^https?:$/.test(u.protocol) || !/^\/s\/[A-Za-z0-9]{4,20}\/?$/.test(u.pathname)) return null;
+      return u;
+    } catch (e) { return null; }
+  }
+
   // ---------- QR scanner (phone app ke andar camera) ----------
   let scanStream = null, scanTimer = null, detector = null;
   async function startScan() {
@@ -757,6 +768,13 @@
         }
       } catch (e) { detector = null; }  // BarcodeDetector fail ho to jsQR use karo
       if (text) {
+        const shop = shopUrl(text);
+        if (shop) {   // print shop ka QR: seedha shop ka page (yahi app ke andar)
+          stopScan(); if (navigator.vibrate) navigator.vibrate(80);
+          if (shop.origin !== location.origin && !confirm(`Ye print shop doosre server (${shop.host}) par hai. Kholein?`)) return;
+          location.href = shop.href;
+          return;
+        }
         const pr = parsePairText(text);
         if (pr) { stopScan(); if (navigator.vibrate) navigator.vibrate(80); $("pairId").value = pr.id; $("pairPin").value = pr.pin; return doPair(pr.id, pr.pin); }
         $("scanErr").textContent = "Ye PrintBridge ka QR nahi hai";
@@ -772,7 +790,8 @@
     $("scanVideo").srcObject = null;
     $("scanner").classList.add("hidden");
   }
-  $("scanBtn").onclick = startScan;
+  $("scanBtn").onclick = () => { $("scanHint").innerHTML = "Laptop ki screen ya print shop ke counter par lage <b>QR code</b> ko is dabbe mein laaiye"; startScan(); };
+  $("openShopQr").onclick = () => { $("scanHint").innerHTML = "Print shop ke counter par lage <b>QR code</b> ko is dabbe mein laaiye"; startScan(); };
   $("scanClose").onclick = stopScan;
   $("removeLaptop").onclick = () => {
     const l = cur(); if (!l || !confirm(`"${l.name}" ko is phone se hata dein?`)) return;

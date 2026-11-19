@@ -1,7 +1,7 @@
 // PrintBridge service worker
 // 1) App ko install hone laayak banata hai (offline me bhi khul jaaye)
 // 2) WhatsApp/Gallery ke "Share" se aayi files ko pakad kar app ko deta hai
-const APP_CACHE = "pb-app-v16";
+const APP_CACHE = "pb-app-v18";
 const SHARE_CACHE = "pb-share";
 const SHELL = ["/", "/jsQR.min.js", "/docdetect.js", "/detworker.js", "/scan.js", "/tools.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
@@ -50,6 +50,8 @@ self.addEventListener("fetch", e => {
 
   // App ki files: pehle cache se turant dikhao, peeche se naya version le aao
   const isPage = e.request.mode === "navigate";
+  // Doosre page (print shop /s/..., /download) seedha server se: wahan app ki screen nahi dikhani
+  if (isPage && url.pathname !== "/" && url.pathname !== "/index.html") return;
   const key = isPage ? "/" : e.request;
   e.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
