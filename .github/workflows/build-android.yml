@@ -33,19 +33,32 @@ jobs:
       - name: Signing key
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: |
-          if [ -n "$KS_B64" ]; then
-            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/printbridge.jks"
-            echo "KS_PATH=$RUNNER_TEMP/printbridge.jks" >> "$GITHUB_ENV"
-          else
-            echo "::warning::ANDROID_KEYSTORE_B64 secret nahi mila - debug key se sign ho raha hai (update install nahi hoga)"
+          KS="$RUNNER_TEMP/printbridge.jks"
+          # Copy-paste mein aaye space / naye line hata do
+          CLEAN=$(printf '%s' "$KS_B64" | tr -d ' \r\n\t')
+          if [ -z "$CLEAN" ]; then
+            echo "::warning::ANDROID_KEYSTORE_B64 secret nahi mila - debug key se sign ho raha hai"
+            exit 0
           fi
+          if ! printf '%s' "$CLEAN" | base64 -d > "$KS" 2>/dev/null; then
+            echo "::error::ANDROID_KEYSTORE_B64 secret sahi copy nahi hua. Secret ko delete karke poori lambi line dobara paste kijiye."
+            exit 1
+          fi
+          KS_PASS=$(printf '%s' "$KS_PASS" | tr -d ' \r\n\t')
+          if ! keytool -list -keystore "$KS" -storepass "$KS_PASS" -alias printbridge > /dev/null 2>&1; then
+            echo "::error::ANDROID_KEY_PASS password is key se match nahi karta (ya key adhuri copy hui). Dono secrets dobara daaliye."
+            exit 1
+          fi
+          echo "KS_PATH=$KS" >> "$GITHUB_ENV"
+          echo "KS_PASS=$KS_PASS" >> "$GITHUB_ENV"
+          echo "Signing key OK"
 
       - name: Build APK
         working-directory: android
         env:
           VERSION_CODE: ${{ github.run_number }}
-          KS_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Publish release
