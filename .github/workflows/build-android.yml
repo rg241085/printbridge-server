@@ -1,0 +1,60 @@
+# PrintBridge Printer (Android) apne aap banana
+# Jab bhi "android" folder badlega, GitHub APK banayega aur "android-latest" release mein daalega.
+# Signing key GitHub Secrets se aati hai (ANDROID_KEYSTORE_B64, ANDROID_KEY_PASS), taaki har update
+# purani app ke upar install ho sake.
+name: Build Android app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - ".github/workflows/build-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/printbridge.jks"
+            echo "KS_PATH=$RUNNER_TEMP/printbridge.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::ANDROID_KEYSTORE_B64 secret nahi mila - debug key se sign ho raha hai (update install nahi hoga)"
+          fi
+
+      - name: Build APK
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          KS_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk PrintBridge-Printer.apk
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest PrintBridge-Printer.apk \
+            --title "PrintBridge Printer for Android (build ${{ github.run_number }})" \
+            --notes "Print from any Android app to the printer connected to your computer." \
+            --prerelease --latest=false
