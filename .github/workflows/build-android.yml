@@ -37,13 +37,14 @@ jobs:
         run: |
           KS="$RUNNER_TEMP/printbridge.jks"
           # Copy-paste mein aaye space / naye line hata do
-          CLEAN=$(printf '%s' "$KS_B64" | tr -d ' \r\n\t')
+          CLEAN=$(printf '%s' "$KS_B64" | tr -cd 'A-Za-z0-9+/=')
+          echo "Key length: ${#CLEAN} (sahi: 3544)"
           if [ -z "$CLEAN" ]; then
             echo "::warning::ANDROID_KEYSTORE_B64 secret nahi mila - debug key se sign ho raha hai"
             exit 0
           fi
           if ! printf '%s' "$CLEAN" | base64 -d > "$KS" 2>/dev/null; then
-            echo "::error::ANDROID_KEYSTORE_B64 secret sahi copy nahi hua. Secret ko delete karke poori lambi line dobara paste kijiye."
+            echo "::error::ANDROID_KEYSTORE_B64 adhoora copy hua (length ${#CLEAN}, chahiye 3544). ANDROID_KEYSTORE_B64.txt kholkar Ctrl+A, Ctrl+C karke dobara paste kijiye."
             exit 1
           fi
           KS_PASS=$(printf '%s' "$KS_PASS" | tr -d ' \r\n\t')
