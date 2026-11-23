@@ -1,13 +1,15 @@
 // PrintBridge service worker
 // 1) App ko install hone laayak banata hai (offline me bhi khul jaaye)
 // 2) WhatsApp/Gallery ke "Share" se aayi files ko pakad kar app ko deta hai
-const APP_CACHE = "pb-app-v25";
+const APP_CACHE = "pb-app-v26";
+const V = "2.5.1";
 const SHARE_CACHE = "pb-share";
-const SHELL = ["/", "/jsQR.min.js", "/docdetect.js", "/detworker.js", "/scan.js", "/tools.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const SHELL = ["/", `/jsQR.min.js?v=${V}`, `/docdetect.js?v=${V}`, "/docdetect.js", "/detworker.js", `/scan.js?v=${V}`, `/tools.js?v=${V}`, "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(SHELL)));
+  // cache: "reload" = phone ke browser cache se nahi, seedha server se naya
+  e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))));
 });
 
 self.addEventListener("activate", e => {
@@ -56,7 +58,7 @@ self.addEventListener("fetch", e => {
   e.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
     const cached = await cache.match(key);
-    const fresh = fetch(e.request).then(r => {
+    const fresh = (isPage ? fetch("/", { cache: "no-cache" }) : fetch(e.request.url, { cache: "no-cache" })).then(r => {
       if (r.ok && r.type === "basic") cache.put(key, r.clone());
       return r;
     }).catch(() => null);

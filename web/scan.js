@@ -1115,5 +1115,5 @@
       }, "crop");
     });
   }
-  window.PBScan = { editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
+  window.PBScan = { version: "2.5.1", editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();

@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "2.3"
+VERSION = "2.5"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -568,7 +568,7 @@ async def shared_file(tok: str, i: int):
 async def _headers(request: Request, call_next):
     resp = await call_next(request)
     p = request.url.path
-    if p in ("/", "/index.html", "/download", "/sw.js", "/manifest.webmanifest") or p.startswith("/api/"):
+    if p in ("/", "/download") or p.startswith("/api/") or p.endswith((".html", ".js", ".css", ".webmanifest")):
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 
