@@ -1,10 +1,10 @@
 // PrintBridge service worker
 // 1) App ko install hone laayak banata hai (offline me bhi khul jaaye)
 // 2) WhatsApp/Gallery ke "Share" se aayi files ko pakad kar app ko deta hai
-const APP_CACHE = "pb-app-v26";
-const V = "2.5.1";
+const APP_CACHE = "pb-app-v27";
+const V = "2.6";
 const SHARE_CACHE = "pb-share";
-const SHELL = ["/", `/jsQR.min.js?v=${V}`, `/docdetect.js?v=${V}`, "/docdetect.js", "/detworker.js", `/scan.js?v=${V}`, `/tools.js?v=${V}`, "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const SHELL = ["/", `/jsQR.min.js?v=${V}`, `/docdetect.js?v=${V}`, "/docdetect.js", "/detworker.js", `/scan.js?v=${V}`, `/tools.js?v=${V}`, `/pdfedit.js?v=${V}`, "/pdf-lib.min.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", e => {
   self.skipWaiting();

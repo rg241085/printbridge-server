@@ -594,6 +594,16 @@
     return [a, Math.max(a + 20, b)];
   }
 
+  // Roshni / contrast (-50..+50). Har browser mein chale isliye pixel se.
+  function adjust(c, bri = 0, con = 0) {
+    if (!bri && !con) return c;
+    const ctx = c.getContext("2d", { willReadFrequently: true }), img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
+    const k = 1 + con / 50 * 0.6, add = bri / 50 * 70, lut = new Uint8ClampedArray(256);
+    for (let v = 0; v < 256; v++) lut[v] = (v - 128) * k + 128 + add;
+    for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
   function applyFilter(c, filter) {
     if (filter === "orig" || !FNAMES[filter]) return c;
     const w = c.width, h = c.height, ctx = c.getContext("2d", { willReadFrequently: true });
@@ -635,7 +645,7 @@
   }
 
   async function processPage(page) {
-    const out = applyFilter(rotate(copyCanvas(warpCached(page)), page.rot), page.filter);
+    const out = adjust(applyFilter(rotate(copyCanvas(warpCached(page)), page.rot), page.filter), page.bri, page.con);
     page.w = out.width; page.h = out.height;
     page.blob = await new Promise(res => out.toBlob(res, "image/jpeg", page.filter === "orig" || page.filter === "light" ? 0.85 : 0.8));
     if (page.url) URL.revokeObjectURL(page.url);
@@ -647,7 +657,8 @@
   const isPages = () => ed && ed.list === pages;
   function openEditor(i, list = pages, onDone = renderGrid, step) {
     const p = list[i];
-    ed = { list, i, onDone, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter, step: step || "filter", prev: null };
+    ed = { list, i, onDone, corners: p.corners.map(c => [...c]), rot: p.rot, filter: p.filter, bri: p.bri || 0, con: p.con || 0, step: step || "filter", prev: null };
+    $("edAdj").classList.add("hidden"); $("edBri").value = ed.bri; $("edCon").value = ed.con;
     $("edStrip").innerHTML = ""; $("edStrip").dataset.key = "";
     $("editor").classList.remove("hidden");
     showStep();
@@ -791,7 +802,7 @@
     if (tok !== fTok || !ed) return;
     const st = $("edStage"), dpr = window.devicePixelRatio || 1;
     const prevMax = Math.min(1400, Math.max(st.clientWidth, st.clientHeight) * dpr);
-    const out = applyFilter(rotate(copyCanvas(w, prevMax), ed.rot), ed.filter);
+    const out = adjust(applyFilter(rotate(copyCanvas(w, prevMax), ed.rot), ed.filter), ed.bri, ed.con);
     cv.width = out.width; cv.height = out.height; cv.getContext("2d").drawImage(out, 0, 0);
     fitCanvas(cv, out.width, out.height, 16);
     cv.style.opacity = "1"; $("edBusy").classList.add("hidden");
@@ -823,6 +834,12 @@
     $("edStrip").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
     drawFilter();
   };
+  // ☀ Roshni / contrast
+  $("edAdjBtn").onclick = () => $("edAdj").classList.toggle("hidden");
+  let adjRaf = 0;
+  const onAdj = () => { if (!ed) return; ed.bri = +$("edBri").value; ed.con = +$("edCon").value; cancelAnimationFrame(adjRaf); adjRaf = requestAnimationFrame(() => drawFilter()); };
+  $("edBri").oninput = onAdj; $("edCon").oninput = onAdj;
+  $("edAdjReset").onclick = () => { $("edBri").value = 0; $("edCon").value = 0; onAdj(); };
   $("edRotate").onclick = () => { ed.rot = (ed.rot + 1) % 4; if (ed.step === "filter") drawFilter(); else $("edTitle").textContent = `⟳ Rotation: ${ed.rot * 90}°`; };
   $("edAll").onclick = async () => {
     const f = ed.filter, b = $("edAll"); b.disabled = true; b.textContent = "…";
@@ -832,7 +849,7 @@
   };
   async function saveEd() {
     const p = ed.list[ed.i];
-    Object.assign(p, { corners: ed.corners, rot: ed.rot, filter: ed.filter });
+    Object.assign(p, { corners: ed.corners, rot: ed.rot, filter: ed.filter, bri: ed.bri, con: ed.con });
     await processPage(p);
   }
   async function goTo(j) {
@@ -1015,6 +1032,25 @@
   const CARD_PX = [1011, 638];                           // 300 DPI par card
   const idPages = [null, null];                          // [aage, peeche]
   let idSets = 1;
+  // Template: kaunsa document. card = asli card size (85.6x54mm), page = poora A4 (marksheet, certificate)
+  const TPL = {
+    aadhaar: { name: "Aadhaar card", kind: "card", sides: 2, l0: "Front side (photo side)", l1: "Back side (address)" },
+    pan:     { name: "PAN card", kind: "card", sides: 1, l0: "Front side" },
+    voter:   { name: "Voter ID", kind: "card", sides: 2, l0: "Front side", l1: "Back side" },
+    dl:      { name: "Driving licence", kind: "card", sides: 2, l0: "Front side", l1: "Back side" },
+    card:    { name: "Other card", kind: "card", sides: 2, l0: "Front side", l1: "Back side <small>(optional)</small>" },
+    page:    { name: "Marksheet / A4", kind: "page", sides: 1, l0: "Document (marksheet, certificate, letter)" },
+  };
+  let tpl = (() => { try { return TPL[localStorage.getItem("pb.idTpl")] ? localStorage.getItem("pb.idTpl") : "aadhaar"; } catch (e) { return "aadhaar"; } })();
+  const T = () => TPL[tpl];
+  function setTpl(k) {
+    if (!TPL[k] || k === tpl) return;
+    const wasPage = T().kind === "page"; tpl = k;
+    try { localStorage.setItem("pb.idTpl", k); } catch (e) {}
+    if (wasPage !== (T().kind === "page")) { idPages[0] = idPages[1] = null; }   // card <-> page: purani photo kaam ki nahi
+    if (T().sides === 1) idPages[1] = null;
+    renderId();
+  }
   function idMsg(type, text) { PB.msg($("idMsg"), type, text); }
   $("openId").onclick = () => { PB.show("id"); renderId(); };
   $("idBack").onclick = () => PB.show("main");
@@ -1032,15 +1068,25 @@
     return new Promise(res => c.toBlob(res, "image/jpeg", 0.9));
   }
   async function renderId() {
+    const t = T();
+    $("idTitle").textContent = t.name;
+    $("idTip").innerHTML = t.kind === "page"
+      ? "Photograph the whole page. Corners are detected automatically and the paper is cleaned up; it prints full size on A4."
+      : `Photograph ${t.sides === 2 ? "both sides" : "the card"}; it prints at <b>actual card size</b> on A4 with cut lines${t.sides === 2 ? " (front and back on one page)" : ""}.`;
+    document.querySelectorAll("#idTpl button").forEach(b => b.classList.toggle("on", b.dataset.v === tpl));
+    $("idSlot1").classList.toggle("hidden", t.sides < 2);
+    $("idSetsRow").classList.toggle("hidden", t.kind === "page");
+    $("idPrev0").classList.toggle("page", t.kind === "page");
+    if (t.kind === "page") idPages.title = "Document"; else delete idPages.title;
     for (const side of [0, 1]) {
       const p = idPages[side], el = $("idPrev" + side);
       if (p) {
-        p.card = await cardJpeg(p);
+        p.card = t.kind === "page" ? p.blob : await cardJpeg(p);
         if (p.cardUrl) URL.revokeObjectURL(p.cardUrl);
         p.cardUrl = URL.createObjectURL(p.card);
         el.innerHTML = `<img src="${p.cardUrl}" alt="">`; el.classList.add("has");
       } else {
-        el.innerHTML = `<span>${side ? "Back side <small>(optional)</small>" : "Front side"}</span>`; el.classList.remove("has");
+        el.innerHTML = `<span>${side ? t.l1 : t.l0}</span>`; el.classList.remove("has");
       }
     }
     const any = idPages.some(Boolean);
@@ -1052,7 +1098,7 @@
     if (!f) return;
     try {
       const src = await fileToCanvas(f);
-      const page = { src, corners: autoCorners(src), rot: 0, filter: "orig" };
+      const page = { src, corners: autoCorners(src), rot: 0, filter: T().kind === "page" ? "magic" : "orig" };
       await processPage(page);
       idPages[side] = page;
       await renderId();
@@ -1062,7 +1108,13 @@
   ["idPrev0", "idPrev1"].forEach((id, side) => $(id).onclick = () => { if (idPages[side]) openEditor(side, idPages, renderId); });
   $("idSets").onclick = e => { const b = e.target.closest("button"); if (b) { idSets = +b.dataset.v; renderId(); } };
 
+  $("idTpl").onclick = e => { const b = e.target.closest("button"); if (b) setTpl(b.dataset.v); };
   function idLayout() {
+    if (T().kind === "page") {   // poora A4: 6 mm kinara chhod kar fit
+      const p = idPages[0], W = 595, H = 842, m = 6 * MM;
+      const s = Math.min((W - 2 * m) / p.w, (H - 2 * m) / p.h), w = p.w * s, h = p.h * s;
+      return [{ W, H, imgs: [{ blob: p.card, w: p.w, h: p.h }], draws: [{ img: 0, x: (W - w) / 2, y: (H - h) / 2, w, h }], lines: [] }];
+    }
     // A4 par card(s) asli size mein. Har set = aage + uske neeche peeche. 2/4 set: 2 column.
     const W = 595, H = 842, cw = CARD_MM[0] * MM, ch = CARD_MM[1] * MM, gap = 8 * MM;
     const sides = idPages.filter(Boolean);
@@ -1083,14 +1135,14 @@
   }
   function idName() {
     const d = new Date(), z = n => String(n).padStart(2, "0");
-    return `IDcard_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.pdf`;
+    return `${T().name.replace(/[^A-Za-z0-9]+/g, "_")}_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.pdf`;
   }
   $("idPrint").onclick = async () => {
     if (!idPages.some(Boolean)) return;
     $("idPrint").disabled = true;
     try {
       PB.printFile(await writePdf(idLayout(), idName()), { fit: "actual", nup: "1" },
-        "🪪 ID card is ready. \"Actual size\" has been selected automatically. Tap Print.");
+        T().kind === "page" ? `📄 ${T().name} is ready. Tap Print.` : `🪪 ${T().name} is ready. "Actual size" has been selected automatically. Tap Print.`);
     } catch (e) { idMsg("err", "Could not create the PDF"); }
     finally { $("idPrint").disabled = false; }
   };
@@ -1115,5 +1167,5 @@
       }, "crop");
     });
   }
-  window.PBScan = { version: "2.5.1", editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
+  window.PBScan = { version: "2.6", editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();

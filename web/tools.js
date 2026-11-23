@@ -36,6 +36,7 @@
     const usable = files.filter(f => isPdf(f) || isImg(f));
     $("mergeBtn").classList.toggle("hidden", !(files.length > 1 && usable.length === files.length));
     $("compressBtn").classList.toggle("hidden", !(files.length === 1 && isPdf(files[0])));
+    $("pdfEditBtn").classList.toggle("hidden", !(files.length === 1 && isPdf(files[0])));
     $("pdfTools").classList.toggle("hidden", $("mergeBtn").classList.contains("hidden") && $("compressBtn").classList.contains("hidden"));
     if (!files.length || (lastResult && files[0] !== lastResult)) $("toolResult").classList.add("hidden");
     if (!files.length) $("compressBox").classList.add("hidden");
@@ -139,7 +140,7 @@
       const s = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
       const c = document.createElement("canvas"); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
       c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close();
-      Object.assign(pp, { img: c, zoom: 1, ox: 0.5, oy: 0.42 });
+      Object.assign(pp, { img: c, white: null, zoom: 1, ox: 0.5, oy: 0.42 });
       $("ppZoom").value = 100;
       $("ppStage").classList.remove("hidden"); $("ppControls").classList.remove("hidden"); $("ppMsg").className = "msg";
       drawPP();
@@ -158,11 +159,62 @@
     pp.ox = (x + cw / 2) / I.width; pp.oy = (y + ch / 2) / I.height;
     return { x, y, w: cw, h: ch };
   }
+  // Peeche ki deewar ko safed karna: kinaron se milte-julte rang ko flood-fill, phir naram kinara
+  function whiteBg(src) {
+    const S = 360, sc = Math.min(1, S / Math.max(src.width, src.height));
+    const w = Math.max(1, Math.round(src.width * sc)), h = Math.max(1, Math.round(src.height * sc));
+    const sm = document.createElement("canvas"); sm.width = w; sm.height = h;
+    const sx = sm.getContext("2d", { willReadFrequently: true }); sx.drawImage(src, 0, 0, w, h);
+    const d = sx.getImageData(0, 0, w, h).data;
+    // kinaron ke pixel (neeche wala kinara chhod kar: wahan kandhe hote hain)
+    const border = [];
+    for (let x = 0; x < w; x++) border.push(x);
+    for (let y = 0; y < h * 0.8; y++) { border.push(y * w); border.push(y * w + w - 1); }
+    const med = k => { const a = border.map(i => d[i * 4 + k]).sort((p, q) => p - q); return a[a.length >> 1]; };
+    const bg = [med(0), med(1), med(2)];
+    const dist = i => Math.hypot(d[i * 4] - bg[0], d[i * 4 + 1] - bg[1], d[i * 4 + 2] - bg[2]);
+    const T = 42, mask = new Float32Array(w * h), seen = new Uint8Array(w * h), q = [];
+    for (const i of border) if (dist(i) < T) { seen[i] = 1; q.push(i); }
+    while (q.length) {
+      const i = q.pop(); mask[i] = 1;
+      const x = i % w, y = (i / w) | 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1])
+        if (j >= 0 && !seen[j]) { seen[j] = 1; if (dist(j) < T) q.push(j); }
+    }
+    let covered = 0; for (let i = 0; i < mask.length; i++) covered += mask[i];
+    if (covered < w * h * 0.08) return null;      // saaf background nahi mila
+    // naram kinara (2 baar box blur)
+    for (let pass = 0; pass < 2; pass++) {
+      const t = new Float32Array(mask);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        mask[i] = (t[i] * 4 + t[i - 1] + t[i + 1] + t[i - w] + t[i + w] + t[i - w - 1] + t[i - w + 1] + t[i + w - 1] + t[i + w + 1]) / 12;
+      }
+    }
+    const mc = document.createElement("canvas"); mc.width = w; mc.height = h;
+    const mx = mc.getContext("2d"), mi = mx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) { mi.data[i * 4] = mi.data[i * 4 + 1] = mi.data[i * 4 + 2] = 255; mi.data[i * 4 + 3] = Math.round(Math.min(1, mask[i] * 1.15) * 255); }
+    mx.putImageData(mi, 0, 0);
+    const out = document.createElement("canvas"); out.width = src.width; out.height = src.height;
+    const ox = out.getContext("2d"); ox.drawImage(src, 0, 0); ox.imageSmoothingQuality = "high";
+    ox.drawImage(mc, 0, 0, src.width, src.height);   // safed parat, mask ke hisaab se
+    return out;
+  }
   function renderCrop(outW, outH) {
     const r = cropRect(), c = document.createElement("canvas"); c.width = outW; c.height = outH;
     const x = c.getContext("2d"); x.imageSmoothingQuality = "high";
-    if ($("ppBright").checked) x.filter = "brightness(1.08) contrast(1.06) saturate(1.05)";
-    x.drawImage(pp.img, r.x, r.y, r.w, r.h, 0, 0, outW, outH);
+    let src = pp.img;
+    if ($("ppWhite").checked) {
+      if (pp.white === null) { pp.white = whiteBg(pp.img) || false; if (!pp.white) ppMsg("info", "Could not find a plain background in this photo. Try a photo taken against a plain wall."); }
+      if (pp.white) src = pp.white;
+    }
+    x.drawImage(src, r.x, r.y, r.w, r.h, 0, 0, outW, outH);
+    const b = +$("ppBri").value;
+    if (b) {
+      const id = x.getImageData(0, 0, outW, outH), a = id.data, add = b / 50 * 60, k = 1 + b / 50 * 0.12;
+      for (let i = 0; i < a.length; i += 4) { a[i] = (a[i] - 128) * k + 128 + add; a[i + 1] = (a[i + 1] - 128) * k + 128 + add; a[i + 2] = (a[i + 2] - 128) * k + 128 + add; }
+      x.putImageData(id, 0, 0);
+    }
     return c;
   }
   function drawPP() {
@@ -183,7 +235,8 @@
   });
   ["pointerup", "pointercancel"].forEach(ev => $("ppCanvas").addEventListener(ev, () => { dragPP = null; }));
   $("ppZoom").oninput = e => { pp.zoom = e.target.value / 100; drawPP(); };
-  $("ppBright").onchange = drawPP;
+  $("ppWhite").onchange = drawPP;
+  let briRaf = 0; $("ppBri").oninput = () => { cancelAnimationFrame(briRaf); briRaf = requestAnimationFrame(drawPP); };
   const segPick = (id, key, conv) => $(id).onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     pp[key] = conv(b.dataset.v); $(id).querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); drawPP();
@@ -220,5 +273,5 @@
   };
   $("ppShare").onclick = async () => { if (!pp.img) return ppMsg("err", "Please choose a photo first"); share(await ppPdf(), $("ppMsg")); };
 
-  window.PBTools = { version: "2.5.1", update, ppPdf, pp };
+  window.PBTools = { version: "2.6", update, ppPdf, pp };
 })();
