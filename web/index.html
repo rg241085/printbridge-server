@@ -139,6 +139,7 @@
   .toolBox.ok { background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
   .toolBox p { margin:0 0 4px; }
   .toolBox .seg { margin-top:8px; }
+  .files li .ed { flex-shrink:0; border:0; background:#eef2ff; color:var(--blue); font-size:12.5px; font-weight:600; border-radius:8px; padding:4px 8px; }
   .files li .up { flex-shrink:0; border:0; background:none; color:var(--blue); font-size:16px; padding:0 4px; }
   .ppStage { position:relative; width:100%; max-width:320px; margin:14px auto 0; touch-action:none; border-radius:10px; overflow:hidden; background:#222; }
   .ppStage canvas { display:block; width:100%; height:auto; cursor:grab; }
@@ -468,7 +469,7 @@
     </section>
 
     <div id="histCard" class="hidden">
-      <div class="histHead"><span class="secHead" style="margin:0">Recent prints</span><span class="tip" style="font-size:11.5px">Tap to print again</span></div>
+      <div class="histHead"><span class="secHead" style="margin:0">Recent prints</span><span class="tip" style="font-size:11.5px">Tap to print again · <button class="link" id="histClear" style="font-size:11.5px;padding:0">Clear</button></span></div>
       <div class="histRow" id="hist"></div>
     </div>
 
@@ -955,18 +956,30 @@
     const base = (f.name || "file").replace(/\.[^.]*$/, "") || "file";
     return new File([f], `${base}.${e2}`, { type: f.type || (e2 === "pdf" ? "application/pdf" : "") });
   }
-  async function addFiles(list) {
+  const isImg = f => /\.(jpe?g|png|bmp|gif|webp)$/i.test(f.name || "");
+  async function addFiles(list, fromPicker) {
     list = await Promise.all([...list].map(fixName));
-    const bad = [];
+    const bad = [], start = files.length;
     for (const f of list) {
       if (ALLOWED.includes((f.name.split(".").pop() || "").toLowerCase())) files.push(f); else bad.push(f.name);
     }
     if (bad.length) msg($("msg"), "err", "These files cannot be printed: " + bad.join(", "));
     renderFiles();
+    // Abhi camera se li gayi photo: seedha crop / ghumane wala editor kholo (ID card jaisa)
+    const f = files[start];
+    if (fromPicker && list.length === 1 && f && isImg(f) && Date.now() - (f.lastModified || 0) < 3 * 60 * 1000) editFile(start);
+  }
+  async function editFile(i) {
+    const f = files[i]; if (!f || !window.PBScan || !PBScan.editPhoto) return;
+    try {
+      const out = await PBScan.editPhoto(f);
+      if (out && out.deleted) { const k = files.indexOf(f); if (k >= 0) files.splice(k, 1); renderFiles(); }
+      else if (out && files[i] === f) { files[i] = out; renderFiles(); toast("Photo updated"); }
+    } catch (e) { msg($("msg"), "err", "Could not open this photo for editing"); }
   }
   function renderFiles() {
     $("fileList").innerHTML = files.map((f, i) =>
-      `<li>${i > 0 ? `<button class="up" data-up="${i}" aria-label="Move up">↑</button>` : ""}<span class="n">${esc(f.name)}</span><span class="st" id="st${i}">${fmt(f.size)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join("");
+      `<li>${i > 0 ? `<button class="up" data-up="${i}" aria-label="Move up">↑</button>` : ""}<span class="n">${esc(f.name)}</span>${isImg(f) ? `<button class="ed" data-ed="${i}" aria-label="Crop and rotate">✂️ Edit</button>` : ""}<span class="st" id="st${i}">${fmt(f.size)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join("");
     $("go").disabled = !files.length;
     $("go").textContent = files.length > 1 ? `🖨 Print ${files.length} files` : "🖨 Print";
     $("printArea").classList.toggle("hidden", !files.length);   // file ke bina settings ka kya kaam
@@ -1072,11 +1085,12 @@
   $("pvAll").onclick = () => { opts.pages = "all"; renderOpts(); };
   $("pvNone").onclick = () => { opts.pages = "custom"; $("pageRange").value = ""; renderOpts(); };
   $("fileList").onclick = e => {
-    const i = e.target.dataset?.i, up = e.target.dataset?.up;
+    const i = e.target.dataset?.i, up = e.target.dataset?.up, ed = e.target.closest("[data-ed]")?.dataset.ed;
+    if (ed !== undefined) return editFile(+ed);
     if (i !== undefined) { files.splice(+i, 1); renderFiles(); }
     if (up !== undefined) { const k = +up; [files[k - 1], files[k]] = [files[k], files[k - 1]]; renderFiles(); }
   };
-  $("file").addEventListener("change", e => { $("msg").className = "msg"; addFiles([...e.target.files]); e.target.value = ""; });
+  $("file").addEventListener("change", e => { $("msg").className = "msg"; addFiles([...e.target.files], true); e.target.value = ""; });
 
   // WhatsApp/Gallery se Share ki gayi files (service worker ne cache me rakhi hain)
   let sharing = false;
@@ -1330,7 +1344,10 @@
   $("go").onclick = async () => {
     const l = cur();
     if (!files.length) return;
-    if (!online) return msg($("msg"), "err", "The computer is offline. Make sure PrintBridge is running on it.");
+    if (!online) {
+      const alt = laptops.find(x => x.id !== l.id && lapOnline[x.id]);
+      return msg($("msg"), "err", `"${disp(l)}" is offline. Make sure PrintBridge is running on it.` + (alt ? ` Or tap "${disp(alt)}" at the top to print there.` : ""));
+    }
     if (!$("printer").value) return msg($("msg"), "err", "Please select a printer");
     sendOpts = optionsForSend();
     if (!sendOpts) { $("optsBox").open = true; $("pageRange").focus(); return msg($("msg"), "err", "Enter valid page numbers, e.g. 1-3, 5"); }
@@ -1402,6 +1419,11 @@
       return `<button class="tile htile" data-h="${i}"${x.fid ? "" : ' style="opacity:.6"'}>${x.n > 1 ? `<span class="cnt">×${x.n}</span>` : ""}<i style="background:${bg}">${ic}</i><b>${esc(x.name.replace(/\.[^.]+$/, ""))}</b>` +
         `<small>${new Date(x.t).toDateString() === new Date().toDateString() ? new Date(x.t).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : new Date(x.t).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</small></button>`; }).join("");
   }
+  $("histClear").onclick = async () => {
+    if (!confirm("Clear the list of recent prints from this phone?")) return;
+    for (const x of load(K_HIST, [])) if (x.fid) idb.del(x.fid).catch(() => {});
+    save(K_HIST, []); renderHist();
+  };
   $("hist").onclick = async e => {
     const b = e.target.closest("[data-h]"); if (!b) return;
     const x = load(K_HIST, [])[+b.dataset.h]; if (!x) return;

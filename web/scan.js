@@ -653,6 +653,7 @@
     showStep();
   }
   function edTitle() {
+    if (ed.list.title) return ed.list.title;
     if (isPages()) return `Page ${ed.i + 1} / ${pages.length}`;
     return ed.i === 0 ? "Card: front side" : "Card: back side";
   }
@@ -899,7 +900,7 @@
   };
   $("edClose").onclick = () => {
     if (ed && ed.step === "crop" && ed.back) { ed.step = "filter"; ed.corners = ed.back; ed.back = null; return showStep(); }
-    closeEditor();
+    const c = ed && ed.list.onCancel; closeEditor(); c && c();
   };
   $("edDone").onclick = async () => {
     if (ed.step === "crop") { ed.step = "filter"; ed.back = null; return showStep(); }
@@ -1096,5 +1097,23 @@
   $("idShare").onclick = async () => { if (idPages.some(Boolean)) sharePdf(await writePdf(idLayout(), idName()), idMsg); };
 
   // test ke liye
-  window.PBScan = { pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
+  // Kisi bhi photo ko (camera / gallery) crop + ghumao + rang: ID card jaisa editor.  Lautata hai nayi File, ya null (cancel)
+  async function editPhoto(file) {
+    const src = await fileToCanvas(file);
+    const page = { src, corners: autoCorners(src), rot: 0, filter: "orig" };
+    await processPage(page);
+    const list = [page];
+    list.title = "Edit photo";
+    return new Promise(res => {
+      list.onCancel = () => res(null);
+      let doneOnce = false;
+      openEditor(0, list, () => {
+        if (doneOnce) return; doneOnce = true;
+        if (!list[0]) return res({ deleted: true });   // editor mein Delete dabaya
+        const base = (file.name || "photo").replace(/\.[^.]*$/, "") || "photo";
+        res(new File([page.blob], `${base}.jpg`, { type: "image/jpeg" }));
+      }, "crop");
+    });
+  }
+  window.PBScan = { editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();
