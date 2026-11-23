@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "2.1"
+VERSION = "2.3"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -906,6 +906,19 @@ class Cloud:
 CLOUD = Cloud()
 
 
+def set_computer_name(name):
+    """Computer ka naam badlo: sabhi phones par yahi naam dikhega."""
+    name = " ".join(str(name or "").split())[:40]
+    if not name:
+        return False
+    with CFG_LOCK:
+        CFG["name"] = name
+        save_config()
+    CLOUD.send({"type": "rename", "name": name})
+    emit(f"Computer name: {name}")
+    return True
+
+
 # ---------------------------------------------------------------- Windows ke saath start
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -1032,6 +1045,18 @@ def run_gui():
     site_lbl = ui.label(c1, "", 8, color=C["mut"], justify="left")
     site_lbl.grid(row=5, column=1, sticky="sw", pady=(6, 0))
     c1.columnconfigure(1, weight=1)
+    namerow = tk.Frame(c1, bg="white")
+    namerow.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+    ui.label(namerow, "Name on phones:", 9, color=C["mut"]).pack(side="left")
+    name_lbl = ui.label(namerow, CFG["name"], 10, True)
+    name_lbl.pack(side="left", padx=(6, 0))
+
+    def rename_click():
+        n = simpledialog.askstring("Computer name", "Name shown on every connected phone\n(e.g. Shop 1 Printer, Ravi Print):",
+                                   initialvalue=CFG["name"], parent=root)
+        if n and set_computer_name(n):
+            name_lbl.configure(text=CFG["name"])
+    ui.Button(namerow, "Rename", rename_click, kind="ghost", size=9, padx=8, pady=3).pack(side="left", padx=(10, 0))
 
     # ---------------------------------------------------- 2. printer + print
     c2 = ui.card(body)

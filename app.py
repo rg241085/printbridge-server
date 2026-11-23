@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "2.0"
+VERSION = "2.3"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
@@ -154,6 +154,10 @@ async def agent_ws(ws: WebSocket):
                 if sc and sc["device_id"] == device_id and sc["status"] != "done":
                     sc["status"] = msg.get("status", sc["status"])
                     sc["message"] = str(msg.get("message", ""))[:300]
+            elif t == "rename":
+                nm = str(msg.get("name", "")).strip()[:60]
+                if nm:
+                    agent.name = nm
             elif t == "hb":
                 await agent.send({"type": "hb_ack"})
     except (WebSocketDisconnect, RuntimeError, json.JSONDecodeError):

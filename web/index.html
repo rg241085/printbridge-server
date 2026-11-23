@@ -45,6 +45,26 @@
   .lapMenu { border-top:1px solid #f0f0f0; margin-top:10px; padding-top:4px; display:flex; flex-direction:column; }
   .lapMenu button { border:0; background:none; text-align:left; font-size:14.5px; padding:11px 6px; color:var(--text); border-radius:8px; }
   .lapMenu button:active { background:#f3f4f6; } .lapMenu .red { color:var(--err); } .lapMenu select { margin:6px 0; }
+  .lapRow, .histRow { display:grid; grid-auto-flow:column; grid-auto-columns:calc((100% - 32px) / 5); gap:8px; overflow-x:auto; scrollbar-width:none;
+          margin:0 -12px 12px; padding:2px 12px 4px; scroll-padding:12px; }
+  .lapRow::-webkit-scrollbar, .histRow::-webkit-scrollbar { display:none; }
+  .ltile { position:relative; border:2px solid transparent; height:112px !important; gap:4px !important; padding:8px 2px 7px !important; }
+  .ltile i, .htile i { width:38px !important; height:38px !important; font-size:19px !important; flex-shrink:0; }
+  .ltile b { font-size:11.5px; font-weight:600; width:100%; padding:0 3px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word; line-height:1.25; min-height:2.5em; display:-webkit-box; text-align:center; }
+  .ltile small { font-size:10.5px; font-weight:500; color:var(--muted); display:flex; align-items:center; gap:4px; margin-top:auto; }
+  .ltile small .dot { width:7px; height:7px; }
+  .ltile.sel { border-color:var(--blue); background:#f5f8ff; }
+  .ltile.off { opacity:.55; }
+  .ltile .kebab { position:absolute; top:3px; right:5px; font-size:14px; color:var(--blue); line-height:1; }
+  .ltile.add i { background:#f3f4f6; color:var(--blue); font-weight:700; }
+  .lapMenuCard { padding:6px 12px; }
+  .lapMenuCard .lmTitle { font-size:12px; color:var(--muted); padding:8px 6px 2px; }
+  .histHead { display:flex; justify-content:space-between; align-items:baseline; margin:2px 2px 6px; }
+  .htile { height:104px !important; gap:4px !important; padding:8px 2px 7px !important; }
+  .htile b { font-size:11px; font-weight:600; width:100%; padding:0 4px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-all; line-height:1.25; text-align:center; }
+  .htile small { font-size:10px; font-weight:500; color:var(--muted); margin-top:auto; }
+  .htile .cnt { position:absolute; top:4px; right:5px; font-size:10px; font-weight:700; background:#eef2ff; color:var(--blue); border-radius:8px; padding:1px 5px; }
+  .htile { position:relative; }
   .tiles { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; margin-bottom:12px; align-items:stretch; }
   .tile { border:0; background:#fff; border-radius:14px; padding:10px 4px 9px; font-size:12px; font-weight:600; color:var(--text); line-height:1.25;
           box-shadow:0 1px 3px rgba(16,24,40,.08); display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; height:100px; line-height:1.2; }
@@ -309,20 +329,14 @@
 
   <!-- ===== Print screen ===== -->
   <div id="mainScreen" class="hidden">
-    <section class="card lapCard">
-      <div class="laptop">
-        <div class="icon">💻</div>
-        <div style="min-width:0;flex:1">
-          <div class="name" id="lapName">Computer</div>
-          <div class="id" id="lapId"></div>
-        </div>
-        <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">Checking…</span></div>
-        <button class="more" id="lapMore" aria-label="More">⋮</button>
-      </div>
-      <div class="lapMenu hidden" id="lapMenu">
+    <div class="lapRow" id="lapRow"></div>
+    <section class="card lapMenuCard hidden" id="lapMenu">
+      <div class="lmTitle" id="lmTitle"></div>
+      <div class="lapMenu" style="border:0;margin:0">
         <select id="lapSelect" class="hidden"></select>
+        <button id="renameLaptop">✏️ Rename on this phone</button>
+        <button id="nameBtn">📱 This phone's name: <b id="nameLbl"></b></button>
         <button id="addLaptop">＋ Add another computer</button>
-        <button id="nameBtn">✏️ Device name: <b id="nameLbl"></b></button>
         <button id="removeLaptop" class="red">🗑 Remove this computer</button>
       </div>
     </section>
@@ -436,11 +450,10 @@
         <button class="btn" id="installBtn">Install</button></div>
     </section>
 
-    <section class="card" id="histCard">
-      <div class="secHead">Recent prints</div>
-      <ul class="hist" id="hist"></ul>
-      <p class="tip hidden" id="histEmpty">No prints yet.</p>
-    </section>
+    <div id="histCard" class="hidden">
+      <div class="histHead"><span class="secHead" style="margin:0">Recent prints</span><span class="tip" style="font-size:11.5px">Tap to print again</span></div>
+      <div class="histRow" id="hist"></div>
+    </div>
 
     <details class="help">
       <summary>💡 Help & tips</summary>
@@ -631,6 +644,8 @@
   let laptops = load(K_LAPTOPS, []);
   let current = load(K_CUR, null);
   const cur = () => laptops.find(l => l.id === current) || laptops[0];
+  const disp = l => (l && (l.nick || l.name)) || "Computer";   // phone par rakha naam, warna computer ka naam
+  const lapOnline = {};   // id -> true/false (null = abhi pata nahi)
 
   const K_NAME = "pb.phoneName";
   const autoName = (() => {
@@ -664,7 +679,7 @@
     $("ppScreen").classList.toggle("hidden", screen !== "pp");
     window.scrollTo(0, 0);
     if (screen === "pair") $("pairCancel").classList.toggle("hidden", !laptops.length);
-    if (screen === "main") renderLaptop();
+    if (screen === "main") { renderLaptop(); refreshStatus(true); }
   }
 
   // ---------- pairing ----------
@@ -795,7 +810,7 @@
   $("openShopQr").onclick = () => { $("scanHint").innerHTML = "Point the camera at the print shop's <b>QR code</b>"; startScan(); };
   $("scanClose").onclick = stopScan;
   $("removeLaptop").onclick = () => {
-    const l = cur(); if (!l || !confirm(`Remove "${l.name}" from this device?`)) return;
+    const l = cur(); if (!l || !confirm(`Remove "${disp(l)}" from this device?`)) return;
     laptops = laptops.filter(x => x.id !== l.id); save(K_LAPTOPS, laptops);
     current = laptops[0]?.id || null; save(K_CUR, current);
     laptops.length ? show("main") : show("pair");
@@ -810,27 +825,61 @@
   function renderLaptop() {
     $("nameLbl").textContent = phoneName;
     const l = cur(); if (!l) return show("pair");
-    $("lapName").textContent = l.name; $("lapId").textContent = l.id;
+    current = l.id;
+    // Jo computer abhi online hain wahi dikhao (chuna hua hamesha dikhe), online pehle
+    const list = laptops.filter(x => x.id === l.id || lapOnline[x.id] !== false)
+      .sort((x, y) => (lapOnline[y.id] === true) - (lapOnline[x.id] === true));
+    const hiddenN = laptops.length - list.length;
+    $("lapRow").innerHTML = list.map(x => {
+      const st = lapOnline[x.id], sel = x.id === l.id;
+      return `<button class="tile ltile${sel ? " sel" : ""}${st === false ? " off" : ""}" data-lap="${esc(x.id)}">${sel ? '<span class="kebab">⋮</span>' : ""}<i style="background:${sel ? "#dbeafe" : "#eef2ff"}">💻</i><b>${esc(disp(x))}</b>` +
+        `<small><span class="dot ${st === true ? "on" : st === false ? "off" : ""}"></span>${st === true ? "Online" : st === false ? "Offline" : "…"}</small></button>`;
+    }).join("") + `<button class="tile ltile add" data-lap="+"><i>＋</i><b>Add</b>${hiddenN ? `<small>${hiddenN} offline</small>` : ""}</button>`;
+    $("lmTitle").textContent = `${disp(l)} · ${l.id}` + (l.nick && l.name && l.nick !== l.name ? ` · on computer: ${l.name}` : "");
     const sel = $("lapSelect");
     sel.classList.toggle("hidden", laptops.length < 2);
-    sel.innerHTML = laptops.map(x => `<option value="${esc(x.id)}" ${x.id === l.id ? "selected" : ""}>${esc(x.name)} (${esc(x.id)})</option>`).join("");
-    refreshStatus(true);
+    sel.innerHTML = laptops.map(x => `<option value="${esc(x.id)}" ${x.id === l.id ? "selected" : ""}>${lapOnline[x.id] ? "🟢" : "⚪"} ${esc(disp(x))} (${esc(x.id)})</option>`).join("");
   }
-  $("lapSelect").onchange = e => { current = e.target.value; save(K_CUR, current); $("lapMenu").classList.add("hidden"); renderLaptop(); };
-  $("lapMore").onclick = e => { e.stopPropagation(); $("lapMenu").classList.toggle("hidden"); };
-  document.addEventListener("click", e => { if (!e.target.closest(".lapCard")) $("lapMenu").classList.add("hidden"); });
-  ["addLaptop", "nameBtn", "removeLaptop"].forEach(id => $(id).addEventListener("click", () => $("lapMenu").classList.add("hidden")));
+  function selectLaptop(id) {
+    if (id === current) return;
+    current = id; save(K_CUR, current); online = !!lapOnline[id];
+    $("lapMenu").classList.add("hidden");
+    renderLaptop(); refreshStatus(true);
+  }
+  $("lapRow").onclick = e => {
+    const t = e.target.closest("[data-lap]"); if (!t) return;
+    e.stopPropagation();
+    const id = t.dataset.lap;
+    if (id === "+") return $("addLaptop").click();
+    if (id === current) return $("lapMenu").classList.toggle("hidden");   // chune hue par dobara tap = menu
+    selectLaptop(id);
+  };
+  $("lapSelect").onchange = e => selectLaptop(e.target.value);
+  document.addEventListener("click", e => { if (!e.target.closest("#lapMenu") && !e.target.closest("#lapRow")) $("lapMenu").classList.add("hidden"); });
+  ["addLaptop", "nameBtn", "removeLaptop", "renameLaptop"].forEach(id => $(id).addEventListener("click", () => $("lapMenu").classList.add("hidden")));
+  $("renameLaptop").onclick = () => {
+    const l = cur(); if (!l) return;
+    const n = prompt(`Name for this computer on your phone\n(e.g. Shop 1 Print, Ravi Print). Leave empty to use the computer's own name "${l.name}".`, l.nick || "");
+    if (n === null) return;
+    l.nick = n.trim().slice(0, 30); if (!l.nick) delete l.nick;
+    save(K_LAPTOPS, laptops); renderLaptop();
+    toast(l.nick ? `Renamed to "${l.nick}" on this phone` : `Using the computer's name "${l.name}"`);
+  };
 
   let online = false;
+  async function checkLaptop(l) {
+    try {
+      const r = await api(`/api/devices/${encodeURIComponent(l.id)}`);
+      lapOnline[l.id] = !!r.online;
+      if (r.online && r.name && r.name !== l.name) { l.name = r.name; save(K_LAPTOPS, laptops); }   // computer par naam badla
+    } catch (e) { lapOnline[l.id] = false; }
+  }
   async function refreshStatus(loadPrinters) {
     const l = cur(); if (!l) return;
     const was = online;
-    try {
-      const r = await api(`/api/devices/${encodeURIComponent(l.id)}`);
-      online = !!r.online;
-    } catch (e) { online = false; }
-    $("dot").className = "dot " + (online ? "on" : "off");
-    $("statusTxt").textContent = online ? "Online" : "Offline";
+    await Promise.all(laptops.map(checkLaptop));
+    online = !!lapOnline[l.id];
+    renderLaptop();
     if (online && (loadPrinters || !was)) fetchPrinters();
     if (!online) $("printer").innerHTML = "<option value=''>Computer is offline</option>";
   }
@@ -850,7 +899,7 @@
   }
   function unpaired() {
     const l = cur();
-    msg($("msg"), "err", `"${l.name}" has removed this device. Please connect again.`);
+    msg($("msg"), "err", `"${disp(l)}" has removed this device. Please connect again.`);
     laptops = laptops.filter(x => x.id !== l.id); save(K_LAPTOPS, laptops);
     setTimeout(() => show("pair"), 1500);
   }
@@ -1173,7 +1222,7 @@
       if (r.status === 401) { unpaired(); break; }
       if (r.ok) { curJob = r.job; if (cancelReq) $("cancelBtn").onclick(); r = await waitJob(r.job, i); curJob = null; }
       $("st" + i).textContent = r.ok ? STATUS.done : r.cancelled ? STATUS.cancelled : "❌";
-      if (r.ok) { okCount++; addHistory(files[i], copies, l.name); if (/color band|color printing is disabled/i.test(r.message || "")) notes.push(files[i].name); }
+      if (r.ok) { okCount++; addHistory(files[i], copies, disp(l)); if (/color band|color printing is disabled/i.test(r.message || "")) notes.push(files[i].name); }
       else if (r.cancelled) cancelled++;
       else errors.push(`${files[i].name}: ${r.error}`);
     }
@@ -1181,7 +1230,7 @@
     if (errors.length) msg($("msg"), "err", errors.join("\n"));
     else if (cancelled && !okCount) msg($("msg"), "info", "⛔ Print cancelled");
     else if (cancelled) msg($("msg"), "info", `✅ ${okCount} printed, ⛔ ${cancelled} cancelled`);
-    else if (okCount) msg($("msg"), "ok", (okCount > 1 ? `✅ ${okCount} files printed.` : `✅ Printed on "${l.name}".`)
+    else if (okCount) msg($("msg"), "ok", (okCount > 1 ? `✅ ${okCount} files printed.` : `✅ Printed on "${disp(l)}".`)
       + (notes.length ? "\n⚫ Color printing is disabled for this device, so it was printed in black & white." : ""));
     files = []; setTimeout(renderFiles, 3000);
   };
@@ -1217,13 +1266,17 @@
   function renderHist() {
     const h = load(K_HIST, []);
     $("histCard").classList.toggle("hidden", !h.length);
-    $("hist").innerHTML = h.map((x, i) => `<li><div class="left"><span>📄 ${esc(x.name)} ×${x.n}</span><span class="t">${new Date(x.t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></div>${x.fid ? `<button class="again" data-h="${i}">🔁 Reprint</button>` : ""}</li>`).join("");
+    const ico = n => { const e = (n.split(".").pop() || "").toLowerCase();
+      return e === "pdf" ? ["📄", "#fee2e2"] : /^(jpe?g|png|webp|gif|bmp|heic)$/.test(e) ? ["🖼", "#dcfce7"] : /^(xlsx?|csv|ods)$/.test(e) ? ["📊", "#d1fae5"] : /^(pptx?)$/.test(e) ? ["📽", "#ffedd5"] : ["📝", "#e0e7ff"]; };
+    $("hist").innerHTML = h.map((x, i) => { const [ic, bg] = ico(x.name);
+      return `<button class="tile htile" data-h="${i}"${x.fid ? "" : ' style="opacity:.6"'}>${x.n > 1 ? `<span class="cnt">×${x.n}</span>` : ""}<i style="background:${bg}">${ic}</i><b>${esc(x.name.replace(/\.[^.]+$/, ""))}</b>` +
+        `<small>${new Date(x.t).toDateString() === new Date().toDateString() ? new Date(x.t).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : new Date(x.t).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</small></button>`; }).join("");
   }
   $("hist").onclick = async e => {
-    const b = e.target.closest(".again"); if (!b) return;
-    const x = load(K_HIST, [])[+b.dataset.h]; if (!x || !x.fid) return;
-    const rec = await idb.get(x.fid).catch(() => null);
-    if (!rec) return msg($("msg"), "err", "This file is no longer stored on the device. Please choose it again.");
+    const b = e.target.closest("[data-h]"); if (!b) return;
+    const x = load(K_HIST, [])[+b.dataset.h]; if (!x) return;
+    const rec = x.fid ? await idb.get(x.fid).catch(() => null) : null;
+    if (!rec) return toast("This file is no longer saved on the phone. Please choose it again.");
     files = [new File([rec.blob], rec.name, { type: rec.type || rec.blob.type })];
     $("sharedNote").classList.add("hidden"); renderFiles();
     msg($("msg"), "info", `🔁 "${rec.name}" is ready. Review the settings and tap Print.`);
