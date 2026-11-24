@@ -31,14 +31,14 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "2.3"
+VERSION = "2.6"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
 ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 HEARTBEAT_SEC = 240  # har 4 minute me server ko "main hoon" bolo (free server sone na paaye)
 GITHUB_REPO = "rg241085/printbridge-server"  # yahin se naya version (PrintBridge.exe) aata hai
-UPDATE_API = os.environ.get("PRINTBRIDGE_UPDATE_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+UPDATE_API = os.environ.get("PRINTBRIDGE_UPDATE_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/latest")
 UPDATE_EVERY_SEC = 6 * 3600
 
 

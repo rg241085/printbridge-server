@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 VERSION = "2.5"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
-    "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/latest/download/PrintBridge.exe")
+    "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/download/latest/PrintBridge.exe")
 PAIR_FAIL_LIMIT = 10        # ek IP se 10 minute me itne galat PIN ke baad roko
 PAIR_FAIL_WINDOW = 10 * 60
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
