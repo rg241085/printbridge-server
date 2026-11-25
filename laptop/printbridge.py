@@ -31,7 +31,7 @@ import local_server as ls
 import shop as sh
 import usage as us
 
-VERSION = "2.6"
+VERSION = "2.7"
 DEFAULT_SERVER = "https://printbridge.onrender.com"
 FROZEN = getattr(sys, "frozen", False)  # PrintBridge.exe ke roop me chal raha hai?
 APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -130,6 +130,7 @@ PIN_FAILS = []
 UI_EVENTS = queue.Queue()  # "show" / "quit": tray icon ya doosri baar exe kholne se
 APPROVALS = queue.Queue()  # (phone ka naam, Event, result) -> window "Allow?" poochti hai
 GUI_MODE = "--nogui" not in sys.argv
+LIC = {}                   # subscription ka haal (server batata hai): state trial/pro/expired, days_left, until ...
 
 
 def emit(msg):
@@ -829,6 +830,8 @@ class Cloud:
         """Kisi bhi thread se server ko message bhejo."""
         if self.loop and self.ws:
             asyncio.run_coroutine_threadsafe(self._send(self.ws, msg), self.loop)
+            return True
+        return False
 
     async def _send(self, ws, msg):
         async with self.send_lock:
@@ -856,7 +859,9 @@ class Cloud:
                                    max_size=2 ** 20) as ws:
                     self.ws = ws
                     await self._send(ws, {"type": "hello", "secret": CFG["agent_secret"], "name": CFG["name"],
-                                          "version": VERSION, "pin": CFG["pin"]})
+                                          "version": VERSION, "pin": CFG["pin"],
+                                          "lic": {"code": CFG.get("lic_code", ""), "trial_start": CFG.get("trial_start"),
+                                                  "trial_sig": CFG.get("trial_sig", "")}})
                     hb = asyncio.create_task(self._heartbeat(ws))
                     try:
                         async for raw in ws:
@@ -868,6 +873,8 @@ class Cloud:
                                 emit("Connected to server")
                             elif t == "rpc":
                                 asyncio.create_task(self._rpc(ws, msg))
+                            elif t == "license":
+                                on_license(msg)
                     finally:
                         hb.cancel()
                         self.ws = None
@@ -904,6 +911,39 @@ class Cloud:
 
 
 CLOUD = Cloud()
+
+
+def on_license(msg):
+    """Server ne subscription ka haal bheja: trial-parchi / naya code save karo, window ko batao"""
+    changed = False
+    with CFG_LOCK:
+        if "trial_start" in msg and (CFG.get("trial_start") != msg["trial_start"] or CFG.get("trial_sig") != msg.get("trial_sig")):
+            CFG["trial_start"], CFG["trial_sig"] = msg["trial_start"], msg.get("trial_sig", "")
+            changed = True
+        if msg.get("result") == "ok" and msg.get("code"):
+            CFG["lic_code"] = msg["code"]
+            changed = True
+        if changed:
+            save_config()
+    old = LIC.get("state")
+    LIC.clear()
+    LIC.update({k: v for k, v in msg.items() if k not in ("type", "trial_sig", "code")})
+    if msg.get("result") == "ok":
+        emit(f"Subscription activated until {msg.get('until')}")
+    elif LIC.get("state") == "expired" and old != "expired":
+        emit("Subscription expired: printing is paused until you enter a new code")
+    UI_EVENTS.put(("license", dict(LIC)))
+
+
+def fmt_day(iso):
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d %b %Y")
+    except Exception:
+        return iso or ""
+
+
+def activate_code(code):
+    return CLOUD.send({"type": "activate", "code": code})
 
 
 def set_computer_name(name):
@@ -1027,6 +1067,39 @@ def run_gui():
 
     body = tk.Frame(root, bg=C["bg"], padx=14, pady=12)
     body.pack(fill="both", expand=True)
+
+    # ---------------------------------------------------- subscription ki patti (trial / expired)
+    lic_bar = tk.Frame(body, bg=C["bg"])
+    lic_inner = tk.Frame(lic_bar, padx=12, pady=8, highlightthickness=1)
+    lic_inner.pack(fill="x", pady=(0, 10))
+    lic_txt = tk.Label(lic_inner, font=ui.font(9, True), justify="left", anchor="w")
+    lic_txt.pack(side="left", fill="x", expand=True)
+    lic_btn = ui.Button(lic_inner, "Subscription", lambda: gx.open_subscription(root, M), kind="soft", size=9, padx=10, pady=4)
+    lic_btn.pack(side="right")
+
+    def show_license(info):
+        st = info.get("state")
+        if st not in ("trial", "pro", "expired"):
+            lic_bar.pack_forget(); return
+        days = info.get("days_left", 0)
+        if st == "expired":
+            bg, fg, line, t, k = C["red_soft"], "#991b1b", "#fecaca", "Subscription expired: printing is paused", "danger"
+        elif st == "trial":
+            soon = days <= 15
+            bg, fg, line = (C["amber_soft"], C["amber"], "#fde68a") if soon else (C["green_soft"], "#065f46", "#bbf7d0")
+            t, k = f"Free trial: {days} day{'s' if days != 1 else ''} left", "amber" if soon else "open"
+        else:
+            soon = days <= 15
+            bg, fg, line = (C["amber_soft"], C["amber"], "#fde68a") if soon else (C["green_soft"], "#065f46", "#bbf7d0")
+            t, k = f"Subscribed until {fmt_day(info.get('until'))}" + (f"  ({days} days left)" if soon else ""), "amber" if soon else "open"
+        lic_inner.configure(bg=bg, highlightbackground=line)
+        lic_txt.configure(bg=bg, fg=fg, text=("⚠ " if st == "expired" else "⭐ ") + t)
+        lic_btn.configure(kind="danger" if st == "expired" else k, text="Renew" if st == "expired" or soon else "Subscription")
+        lic_btn._bgparent = bg
+        tk.Canvas.configure(lic_btn, bg=bg)
+        lic_btn._size()
+        if not lic_bar.winfo_ismapped():
+            lic_bar.pack(fill="x", before=body.winfo_children()[1] if len(body.winfo_children()) > 1 else None)
 
     # ---------------------------------------------------- 1. phone jodna
     c1 = ui.card(body)
@@ -1166,6 +1239,7 @@ def run_gui():
 
     def more_menu():
         mnu = tk.Menu(root, tearoff=0, font=ui.font(10))
+        mnu.add_command(label="Subscription…", command=lambda: gx.open_subscription(root, M))
         mnu.add_command(label="Refresh printers", command=lambda: (refresh(), load_printers()))
         mnu.add_command(label="Server address…", command=ask_server)
         mnu.add_separator()
@@ -1272,6 +1346,10 @@ def run_gui():
                 show_window()
                 import gui_send
                 gui_send.open_send(root, M, ev[1])
+                continue
+            if isinstance(ev, tuple) and ev[0] == "license":
+                show_license(ev[1])
+                gx.subscription_update(ev[1])
                 continue
             if isinstance(ev, tuple) and ev[0] == "error":
                 messagebox.showerror("PrintBridge", ev[1], parent=root)

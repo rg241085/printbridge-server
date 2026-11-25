@@ -13,7 +13,9 @@ Server kisi ka password/token save nahi karta:
   - Phone ka token sirf laptop check karta hai.
 """
 import asyncio
+import datetime
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -26,7 +28,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-VERSION = "2.5"
+VERSION = "2.7"
 # Laptop program (PrintBridge.exe) ka download link. GitHub Actions ise har update par banata hai.
 DOWNLOAD_URL = os.environ.get(
     "DOWNLOAD_URL", "https://github.com/rg241085/printbridge-server/releases/download/latest/PrintBridge.exe")
@@ -57,11 +59,114 @@ def norm_id(s: str) -> str:
     return f"PB-{s[:4]}-{s[4:8]}" if len(s) == 8 else ""
 
 
+# ---------------------------------------------------------------- subscription (license)
+# Har computer: pehle 6 mahine free (trial), phir Rs 30 / saal ka code.
+# Server kuch save nahi karta: code aur trial-parchi dono gupt chabi (PB_LICENSE_SECRET) se sign hote hain,
+# isliye server restart hone par bhi sab sahi rehta hai. Chabi GitHub par nahi, sirf Render ki settings mein.
+LICENSE_SECRET = os.environ.get("PB_LICENSE_SECRET", "").encode()
+ADMIN_KEY = os.environ.get("PB_ADMIN_KEY", "")
+TRIAL_DAYS = int(os.environ.get("PB_TRIAL_DAYS", "183"))
+PRICE_TEXT = os.environ.get("PB_PRICE", "Rs 30 / year")
+PAY_UPI = os.environ.get("PB_PAY_UPI", "")              # jaise ravi@upi
+PAY_WHATSAPP = os.environ.get("PB_PAY_WHATSAPP", "")    # jaise 919876543210
+LEGACY_UNTIL = os.environ.get("PB_LEGACY_UNTIL", "")      # jaise 2027-01-31: uske baad purana exe band
+LIC_EPOCH = datetime.date(2026, 1, 1)
+LICENSING = bool(LICENSE_SECRET)                         # chabi nahi = sab free (purana tareeka)
+ACTIVATE_FAILS: dict[str, list] = {}
+
+
+def today_day() -> int:
+    return (datetime.date.today() - LIC_EPOCH).days
+
+
+def day_to_date(d: int) -> str:
+    return (LIC_EPOCH + datetime.timedelta(days=d)).isoformat()
+
+
+def _mac(msg: str, n: int) -> bytes:
+    return hmac.new(LICENSE_SECRET, msg.encode(), hashlib.sha256).digest()[:n]
+
+
+def _b32(data: bytes, nchars: int) -> str:
+    v, out = int.from_bytes(data, "big"), []
+    v <<= nchars * 5 - len(data) * 8
+    for _ in range(nchars):
+        out.append(ID_ALPHABET[v & 31]); v >>= 5
+    return "".join(reversed(out))
+
+
+def _unb32(s: str):
+    v = 0
+    for ch in s:
+        i = ID_ALPHABET.find(ch)
+        if i < 0:
+            return None
+        v = v * 32 + i
+    return v
+
+
+def make_code(device_id: str, until_day: int) -> str:
+    """Code = khatam hone ki tareekh (2 byte) + sign (5 byte) -> 12 akshar, jaise 7KQ2-M9XA-4TRB"""
+    raw = until_day.to_bytes(2, "big") + _mac(f"code|{device_id}|{until_day}", 5)
+    c = _b32(raw, 12)
+    return f"{c[:4]}-{c[4:8]}-{c[8:]}"
+
+
+def check_code(device_id: str, code: str):
+    """Sahi code ho to uski aakhri tareekh (din), warna None"""
+    s = "".join(ch for ch in (code or "").upper() if ch.isalnum())
+    if len(s) != 12 or not LICENSING:
+        return None
+    v = _unb32(s)
+    if v is None:
+        return None
+    v >>= 4
+    raw = v.to_bytes(7, "big")
+    until = int.from_bytes(raw[:2], "big")
+    return until if hmac.compare_digest(raw[2:], _mac(f"code|{device_id}|{until}", 5)) else None
+
+
+def trial_sig(device_id: str, start: int) -> str:
+    return _mac(f"trial|{device_id}|{start}", 8).hex()
+
+
+def license_state(agent) -> dict:
+    """Is computer ki subscription ka haal"""
+    if not LICENSING:
+        return {"state": "free", "licensing": False}
+    t = today_day()
+    if agent.legacy:   # purana laptop program (license wala hissa nahi): PB_LEGACY_UNTIL tak chalne do
+        if LEGACY_UNTIL and datetime.date.today().isoformat() > LEGACY_UNTIL:
+            return {"state": "expired", "licensing": True, "days_left": 0,
+                    "message": "Please update PrintBridge on this computer (Check for updates)."}
+        return {"state": "legacy", "licensing": True, "message": "Please update PrintBridge on this computer."}
+    until_code = agent.code_until or -1
+    until_trial = agent.trial_start + TRIAL_DAYS - 1 if agent.trial_start is not None else -1
+    if until_code >= t:
+        st, until = "pro", until_code
+    elif until_trial >= t:
+        st, until = "trial", until_trial
+    else:
+        st, until = "expired", max(until_code, until_trial)
+    return {"state": st, "licensing": True, "until": day_to_date(until) if until >= 0 else None,
+            "days_left": max(0, until - t + 1) if until >= 0 else 0, "price": PRICE_TEXT,
+            "pay_upi": PAY_UPI, "pay_whatsapp": PAY_WHATSAPP, "trial_days": TRIAL_DAYS}
+
+
+def require_license(agent, shop=False):
+    if license_state(agent)["state"] == "expired":
+        raise HTTPException(402, "This print shop's PrintBridge subscription has expired. Please let the shop owner know."
+                            if shop else
+                            f"The PrintBridge subscription on \"{agent.name}\" has expired. "
+                            f"Renew it on that computer ({PRICE_TEXT}) to continue printing.")
+
+
 # ---------------------------------------------------------------- laptops (agents)
 class Agent:
     def __init__(self, ws: WebSocket, device_id: str, name: str, version: str):
         self.ws, self.id, self.name, self.version = ws, device_id, name, version
         self.pending: dict[str, asyncio.Future] = {}
+        self.legacy, self.code_until, self.trial_start = True, None, None
         self.send_lock = asyncio.Lock()
 
     async def send(self, msg: dict):
@@ -133,6 +238,22 @@ async def agent_ws(ws: WebSocket):
         except Exception:
             pass
     await agent.send({"type": "welcome", "id": device_id, "server_version": VERSION})
+    lic = hello.get("lic")
+    if isinstance(lic, dict) and LICENSING:
+        agent.legacy = False
+        agent.code_until = check_code(device_id, str(lic.get("code", "")))
+        try:
+            st = int(lic.get("trial_start"))
+        except (TypeError, ValueError):
+            st = None
+        if st is not None and hmac.compare_digest(str(lic.get("trial_sig", "")), trial_sig(device_id, st)):
+            agent.trial_start = st
+        elif st is None:          # pehli baar: aaj se trial shuru
+            agent.trial_start = today_day()
+        else:                     # parchi se chhed-chhaad: trial khatam
+            agent.trial_start = -10 ** 6
+    if isinstance(lic, dict):
+        await send_license(agent)
 
     try:
         while True:
@@ -158,6 +279,8 @@ async def agent_ws(ws: WebSocket):
                 nm = str(msg.get("name", "")).strip()[:60]
                 if nm:
                     agent.name = nm
+            elif t == "activate":
+                await activate(agent, str(msg.get("code", ""))[:40])
             elif t == "hb":
                 await agent.send({"type": "hb_ack"})
     except (WebSocketDisconnect, RuntimeError, json.JSONDecodeError):
@@ -170,6 +293,33 @@ async def agent_ws(ws: WebSocket):
                 fut.cancel()
 
 
+async def send_license(agent, extra=None):
+    info = license_state(agent)
+    if LICENSING and not agent.legacy and agent.trial_start is not None and agent.trial_start > -10 ** 5:
+        info["trial_start"], info["trial_sig"] = agent.trial_start, trial_sig(agent.id, agent.trial_start)
+    info.update(extra or {})
+    await agent.send({"type": "license", **info})
+
+
+async def activate(agent, code: str):
+    now = time.time()
+    fails = [t for t in ACTIVATE_FAILS.get(agent.id, []) if now - t < 3600]
+    ACTIVATE_FAILS[agent.id] = fails
+    if not LICENSING:
+        return await send_license(agent, {"result": "error", "error": "Codes are not needed right now."})
+    if len(fails) >= 10:
+        return await send_license(agent, {"result": "error", "error": "Too many wrong codes. Try again in an hour."})
+    until = check_code(agent.id, code)
+    if until is None:
+        fails.append(now)
+        return await send_license(agent, {"result": "error", "error": "This code is not valid for this computer. Check it and try again."})
+    if until < today_day():
+        return await send_license(agent, {"result": "error", "error": f"This code expired on {day_to_date(until)}."})
+    agent.legacy = False
+    agent.code_until = max(agent.code_until or -1, until)
+    await send_license(agent, {"result": "ok", "code": code.strip().upper()})
+
+
 # ---------------------------------------------------------------- phone API
 @app.get("/api/health")
 async def health():
@@ -179,7 +329,9 @@ async def health():
 @app.get("/api/devices/{device_id}")
 async def device_status(device_id: str):
     a = AGENTS.get(norm_id(device_id))
-    return {"ok": True, "online": bool(a), "name": a.name if a else None}
+    lic = license_state(a) if a else None
+    return {"ok": True, "online": bool(a), "name": a.name if a else None,
+            "license": {"state": lic["state"], "days_left": lic.get("days_left")} if lic else None}
 
 
 @app.get("/api/config")
@@ -238,6 +390,7 @@ async def create_job(
     x_pb_token: str = Header(""),
 ):
     agent = get_agent(device_id)
+    require_license(agent)
     try:
         opts = json.loads(options[:2000]) if options else {}
         opts = opts if isinstance(opts, dict) else {}
@@ -301,6 +454,7 @@ async def cancel_job(job_id: str, x_pb_token: str = Header("")):
 @app.post("/api/devices/{device_id}/scan")
 async def start_scan(device_id: str, request: Request, x_pb_token: str = Header("")):
     agent = get_agent(device_id)
+    require_license(agent)
     body = await request.json()
     scan_id = uuid.uuid4().hex
     sc = {"id": scan_id, "device_id": agent.id, "status": "waiting", "message": "Request sent to the computer",
@@ -422,7 +576,9 @@ async def shop_page(code: str):
 
 @app.get("/api/shop/{code}")
 async def shop_info(code: str):
-    res = await shop_agent(code).rpc("shop_info", {})
+    agent = shop_agent(code)
+    require_license(agent, shop=True)
+    res = await agent.rpc("shop_info", {})
     if not res.get("ok"):
         raise HTTPException(403, res.get("error", "This shop is currently closed"))
     return res
@@ -443,6 +599,7 @@ async def shop_file(
     if not customer.strip():
         raise HTTPException(400, "Please enter your name")
     agent = shop_agent(code)
+    require_license(agent, shop=True)
     try:
         opts = json.loads(options[:2000]) if options else {}
         opts = opts if isinstance(opts, dict) else {}
@@ -495,6 +652,49 @@ async def shop_order_cancel(code: str, order_id: str):
     if not res.get("ok"):
         raise HTTPException(400, res.get("error", "Could not cancel the order"))
     return res
+
+
+# ---------------------------------------------------------------- admin: subscription code banana
+ADMIN_FAILS: dict[str, list] = {}
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse(os.path.join(WEB_DIR, "admin.html"), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/admin/code")
+async def admin_code(request: Request):
+    ip, now = client_ip(request), time.time()
+    fails = [t for t in ADMIN_FAILS.get(ip, []) if now - t < 600]
+    ADMIN_FAILS[ip] = fails
+    if len(fails) >= 5:
+        raise HTTPException(429, "Too many wrong admin passwords. Wait 10 minutes.")
+    body = await request.json()
+    if not ADMIN_KEY or not LICENSING:
+        raise HTTPException(503, "Licensing is not set up yet: add PB_LICENSE_SECRET and PB_ADMIN_KEY in Render settings.")
+    if not hmac.compare_digest(str(body.get("key", "")), ADMIN_KEY):
+        fails.append(now)
+        raise HTTPException(403, "Wrong admin password")
+    device_id = norm_id(str(body.get("id", "")))
+    if not device_id:
+        raise HTTPException(400, "Enter a valid Computer ID (e.g. PB-7K3M-9QX2)")
+    try:
+        months = max(1, min(int(body.get("months", 12)), 60))
+    except (TypeError, ValueError):
+        months = 12
+    t = today_day()
+    a = AGENTS.get(device_id)
+    cur = license_state(a) if a else None
+    start = t
+    if cur and cur["state"] in ("pro", "trial") and cur.get("until"):   # bacha hua samay jodo
+        start = max(t, (datetime.date.fromisoformat(cur["until"]) - LIC_EPOCH).days + 1)
+    until = start + round(months * 365 / 12) - 1
+    if body.get("preview"):
+        return {"ok": True, "id": device_id, "online": bool(a), "name": a.name if a else None,
+                "current": cur, "until": day_to_date(until)}
+    return {"ok": True, "id": device_id, "online": bool(a), "name": a.name if a else None, "current": cur,
+            "code": make_code(device_id, until), "until": day_to_date(until)}
 
 
 # ---------------------------------------------------------------- website pages

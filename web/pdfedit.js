@@ -3,7 +3,7 @@
   const PB = window.PB;
   if (!PB) return;
   const { $, esc } = PB;
-  const VERSION = "2.6";
+  const VERSION = "2.7.1";
   const ext = f => (f.name.split(".").pop() || "").toLowerCase();
   const IMG = ["jpg", "jpeg", "png", "bmp", "gif", "webp"];
 

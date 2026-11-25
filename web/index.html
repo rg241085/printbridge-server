@@ -362,7 +362,7 @@
 </head>
 <body>
 <header>
-  <h1><img src="/icons/icon-192.png" alt="">PrintBridge <small id="appVer" style="font-size:11px;font-weight:600;background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">v2.6</small></h1>
+  <h1><img src="/icons/icon-192.png" alt="">PrintBridge <small id="appVer" style="font-size:11px;font-weight:600;background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">v2.7.1</small></h1>
 </header>
 
 <main>
@@ -519,7 +519,7 @@
 
     <details class="help">
       <summary>💡 Help & tips</summary>
-      <p class="tip" id="verInfo">App version 2.6</p>
+      <p class="tip" id="verInfo">App version 2.7.1</p>
       <p id="shareHelp">📲 <b>Print from WhatsApp:</b> long-press a document → <b>Share</b> → <b>PrintBridge</b>. The app must be installed first (Chrome menu ⋮ → "Install app").</p>
       <p>📶 <b>No internet?</b> Scan the "Offline printing" QR code in the PrintBridge window on your computer (both devices must be on the same Wi-Fi).</p>
       <p>🔒 <b>Password-protected PDFs</b> (e.g. Aadhaar): you will be asked for the password when you choose the file.</p>
@@ -731,14 +731,14 @@
   </div>
 </div>
 <div id="toast"></div>
-<script src="/jsQR.min.js?v=2.6" defer></script>
-<script src="/docdetect.js?v=2.6" defer></script>
-<script src="/scan.js?v=2.6" defer></script>
-<script src="/tools.js?v=2.6" defer></script>
-<script src="/pdfedit.js?v=2.6" defer></script>
+<script src="/jsQR.min.js?v=2.7.1" defer></script>
+<script src="/docdetect.js?v=2.7.1" defer></script>
+<script src="/scan.js?v=2.7.1" defer></script>
+<script src="/tools.js?v=2.7.1" defer></script>
+<script src="/pdfedit.js?v=2.7.1" defer></script>
 
 <script>
-  const APP_VER = "2.6";
+  const APP_VER = "2.7.1";
   // Purani (cache mein atki) scan.js / tools.js mili to cache saaf karke ek baar taaza karo
   window.addEventListener("load", async () => {
     const ok = window.PBScan && PBScan.version === APP_VER && window.PBTools && PBTools.version === APP_VER && window.PBPdfEd && PBPdfEd.version === APP_VER;
@@ -778,7 +778,7 @@
   let current = load(K_CUR, null);
   const cur = () => laptops.find(l => l.id === current) || laptops[0];
   const disp = l => (l && (l.nick || l.name)) || "Computer";   // phone par rakha naam, warna computer ka naam
-  const lapOnline = {};   // id -> true/false (null = abhi pata nahi)
+  const lapOnline = {}, lapLic = {};   // id -> true/false (null = abhi pata nahi)
 
   const K_NAME = "pb.phoneName";
   const autoName = (() => {
@@ -966,7 +966,8 @@
     $("lapRow").innerHTML = list.map(x => {
       const st = lapOnline[x.id], sel = x.id === l.id;
       return `<button class="tile ltile${sel ? " sel" : ""}${st === false ? " off" : ""}" data-lap="${esc(x.id)}">${sel ? '<span class="kebab">⋮</span>' : ""}<i style="background:${sel ? "#dbeafe" : "#eef2ff"}">💻</i><b>${esc(disp(x))}</b>` +
-        `<small><span class="dot ${st === true ? "on" : st === false ? "off" : ""}"></span>${st === true ? "Online" : st === false ? "Offline" : "…"}</small></button>`;
+        (st === true && lapLic[x.id] && lapLic[x.id].state === "expired" ? `<small style="color:#b91c1c">⚠ Expired</small></button>` :
+        `<small><span class="dot ${st === true ? "on" : st === false ? "off" : ""}"></span>${st === true ? "Online" : st === false ? "Offline" : "…"}</small></button>`);
     }).join("") + `<button class="tile ltile add" data-lap="+"><i>＋</i><b>Add</b>${hiddenN ? `<small>${hiddenN} offline</small>` : ""}</button>`;
     $("lmTitle").textContent = `${disp(l)} · ${l.id}` + (l.nick && l.name && l.nick !== l.name ? ` · on computer: ${l.name}` : "");
     const sel = $("lapSelect");
@@ -1003,7 +1004,7 @@
   async function checkLaptop(l) {
     try {
       const r = await api(`/api/devices/${encodeURIComponent(l.id)}`);
-      lapOnline[l.id] = !!r.online;
+      lapOnline[l.id] = !!r.online; lapLic[l.id] = r.license || null;
       if (r.online && r.name && r.name !== l.name) { l.name = r.name; save(K_LAPTOPS, laptops); }   // computer par naam badla
     } catch (e) { lapOnline[l.id] = false; }
   }
@@ -1013,6 +1014,11 @@
     await Promise.all(laptops.map(checkLaptop));
     online = !!lapOnline[l.id];
     renderLaptop();
+    const lic = lapLic[l.id];
+    if (online && lic && lic.state === "expired" && !refreshStatus.warned) {
+      refreshStatus.warned = true;
+      msg($("msg"), "err", `The PrintBridge subscription on "${disp(l)}" has expired, so printing is paused. Ask the computer's owner to renew it.`);
+    }
     if (online && (loadPrinters || !was)) fetchPrinters();
     if (!online) $("printer").innerHTML = "<option value=''>Computer is offline</option>";
   }

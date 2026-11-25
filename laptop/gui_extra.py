@@ -903,3 +903,126 @@ def open_phones(root, m, after_change=None):
     ui.Button(bb, "Daily limit…", limit, kind="secondary", bold=False).pack(side="left", padx=8)
     ui.Button(bb, "Remove device", remove, kind="danger").pack(side="right")
     refresh()
+
+
+# ---------------------------------------------------------------- Subscription (trial / code)
+_sub = {}
+
+
+def open_subscription(root, m):
+    win = _single("sub", root, "PrintBridge – Subscription", f"440x{min(690, root.winfo_screenheight() - 80)}+60+20")
+    if win is None:
+        return
+    C = ui.C
+    win.configure(bg=C["bg"])
+    hdr, _ = ui.header(win, "Subscription", "PrintBridge for this computer")
+    body = tk.Frame(win, bg=C["bg"], padx=14, pady=12)
+    body.pack(fill="both", expand=True)
+
+    c1 = ui.card(body)
+    c1.pack(fill="x")
+    ui.section(c1, "Status").pack(anchor="w")
+    st_lbl = ui.label(c1, "", 13, True, justify="left", wraplength=380)
+    st_lbl.pack(anchor="w", pady=(6, 2))
+    st_sub = ui.label(c1, "", 9, color=C["mut"], justify="left", wraplength=380)
+    st_sub.pack(anchor="w")
+
+    c2 = ui.card(body)
+    c2.pack(fill="x", pady=(10, 0))
+    ui.section(c2, "How to renew").pack(anchor="w")
+    how = ui.label(c2, "", 10, justify="left", wraplength=380)
+    how.pack(anchor="w", pady=(6, 6))
+    idrow = tk.Frame(c2, bg="white")
+    idrow.pack(fill="x")
+    ui.label(idrow, "Your Computer ID:", 9, color=C["mut"]).pack(side="left")
+    tk.Label(idrow, text=m.CFG["device_id"], font=("Consolas", 14, "bold"), fg=C["blue"], bg="white").pack(side="left", padx=(6, 0))
+
+    def copy_id():
+        win.clipboard_clear(); win.clipboard_append(m.CFG["device_id"]); copy_b.configure(text="✔ Copied")
+        win.after(1500, lambda: copy_b.winfo_exists() and copy_b.configure(text="Copy"))
+    copy_b = ui.Button(idrow, "Copy", copy_id, kind="ghost", size=9, padx=8, pady=3)
+    copy_b.pack(side="left", padx=(8, 0))
+    wa_b = ui.Button(c2, "💬 Send Computer ID on WhatsApp", lambda: _open_wa(m), kind="soft", size=10, pady=7)
+
+    c3 = ui.card(body)
+    c3.pack(fill="x", pady=(10, 0))
+    ui.section(c3, "Enter subscription code").pack(anchor="w")
+    code_var = tk.StringVar(win)
+    win._vars = [code_var]
+    ent = tk.Entry(c3, textvariable=code_var, font=("Consolas", 18, "bold"), justify="center", relief="solid", bd=1,
+                   highlightthickness=0)
+    ent.pack(fill="x", pady=(8, 8), ipady=6)
+
+    def fmt_code(*_):
+        raw = "".join(ch for ch in code_var.get().upper() if ch.isalnum())[:12]
+        nice = "-".join(raw[i:i + 4] for i in range(0, len(raw), 4))
+        if nice != code_var.get():
+            code_var.set(nice); ent.icursor("end")
+    code_var.trace_add("write", fmt_code)
+    res_lbl = ui.label(c3, "", 9, justify="left", wraplength=380)
+    res_lbl.pack(anchor="w")
+
+    def activate():
+        code = code_var.get().strip()
+        if len(code.replace("-", "")) != 12:
+            res_lbl.configure(text="The code has 12 letters/numbers, e.g. 7KQ2-M9XA-4TRB", fg=C["red"]); return
+        if not m.activate_code(code):
+            res_lbl.configure(text="PrintBridge is offline. Connect to the internet and try again.", fg=C["red"]); return
+        res_lbl.configure(text="Checking…", fg=C["mut"]); act_b.configure(state="disabled")
+        _sub["waiting"] = True
+    act_b = ui.Button(c3, "Activate", activate, kind="primary", size=11, pady=9)
+    act_b.pack(fill="x", pady=(8, 0))
+    ent.bind("<Return>", lambda e: activate())
+
+    def render(info):
+        st = info.get("state")
+        days, until = info.get("days_left", 0), m.fmt_day(info.get("until"))
+        price = info.get("price") or "Rs 30 / year"
+        if st == "pro":
+            st_lbl.configure(text=f"✅ Subscribed until {until}", fg="#065f46")
+            st_sub.configure(text=f"{days} days left. A new code adds a year on top of the time you have left.")
+        elif st == "trial":
+            st_lbl.configure(text=f"⭐ Free trial: {days} day{'s' if days != 1 else ''} left", fg="#065f46" if days > 15 else C["amber"])
+            st_sub.configure(text=f"Everything works free until {until}. After that it is {price}.")
+        elif st == "expired":
+            st_lbl.configure(text="⚠ Subscription expired", fg=C["red"])
+            st_sub.configure(text=f"Printing from phones and the print shop is paused. Renew for {price} to continue.")
+        elif not info:
+            st_lbl.configure(text="Checking…", fg=C["mut"]); st_sub.configure(text="PrintBridge will show your status once it is online.")
+        else:
+            st_lbl.configure(text="✅ No subscription needed right now", fg="#065f46"); st_sub.configure(text="")
+        upi, wa = info.get("pay_upi"), info.get("pay_whatsapp")
+        steps = [f"1. Pay {price}" + (f" by UPI to  {upi}" if upi else "") + ".",
+                 "2. Send the payment screenshot and your Computer ID" + (" on WhatsApp." if wa else " to PrintBridge support."),
+                 "3. You will receive a 12-character code. Enter it below."]
+        how.configure(text="\n".join(steps))
+        if wa:
+            wa_b.pack(fill="x", pady=(10, 0))
+        else:
+            wa_b.pack_forget()
+        r = info.get("result")
+        if r and _sub.get("waiting"):
+            _sub["waiting"] = False
+            act_b.configure(state="normal")
+            if r == "ok":
+                res_lbl.configure(text=f"✅ Activated! Valid until {until}.", fg="#065f46"); code_var.set("")
+            else:
+                res_lbl.configure(text=info.get("error", "Could not activate"), fg=C["red"])
+    _sub["render"] = render
+    _sub["win"] = win
+    render(dict(m.LIC))
+    ent.focus_set()
+
+
+def subscription_update(info):
+    w, r = _sub.get("win"), _sub.get("render")
+    if w is not None and r and w.winfo_exists():
+        r(info)
+
+
+def _open_wa(m):
+    import urllib.parse
+    import webbrowser
+    num = "".join(ch for ch in str(m.LIC.get("pay_whatsapp", "")) if ch.isdigit())
+    text = f"Hello, I want to renew PrintBridge.\nComputer ID: {m.CFG['device_id']}\nName: {m.CFG['name']}"
+    webbrowser.open(f"https://wa.me/{num}?text={urllib.parse.quote(text)}")

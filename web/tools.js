@@ -273,5 +273,5 @@
   };
   $("ppShare").onclick = async () => { if (!pp.img) return ppMsg("err", "Please choose a photo first"); share(await ppPdf(), $("ppMsg")); };
 
-  window.PBTools = { version: "2.6", update, ppPdf, pp };
+  window.PBTools = { version: "2.7.1", update, ppPdf, pp };
 })();

@@ -103,9 +103,10 @@
     r.onupgradeneeded = () => r.result.createObjectStore("s");
     r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   });
-  let saveT = 0, restoring = false;
+  let saveT = 0, restoring = false, checked = false;   // checked = purani scan dekh li (tab tak khaali list save mat karo)
   function saveSession() {
     if (restoring) return;
+    if (!pages.length) { if (checked) clearSession(); return; }
     clearTimeout(saveT);
     saveT = setTimeout(async () => {
       try {
@@ -120,27 +121,48 @@
       } catch (e) {}
     }, 600);
   }
-  async function restoreSession() {
-    if (pages.length) return;
+  async function clearSession() {
+    clearTimeout(saveT);
     try {
       const db = await SDB();
-      const rec = await new Promise(res => { const r = db.transaction("s").objectStore("s").get("session"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+      await new Promise(res => { const tx = db.transaction("s", "readwrite"); tx.objectStore("s").delete("session"); tx.oncomplete = tx.onerror = tx.onabort = res; });
       db.close();
-      if (!rec || !rec.pages || !rec.pages.length || pages.length) return;
-      restoring = true; smsg("info", `⏳ Restoring ${rec.pages.length} pages from your last session…`);
-      for (const r of rec.pages) {
+    } catch (e) {}
+  }
+  let restoreTok = 0;
+  async function restoreSession() {
+    if (pages.length || restoring) { checked = true; return; }
+    const tok = ++restoreTok;
+    let rec = null;
+    try {
+      const db = await SDB();
+      rec = await new Promise(res => { const r = db.transaction("s").objectStore("s").get("session"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+      db.close();
+    } catch (e) { checked = true; return; }
+    if (tok !== restoreTok || !rec || !rec.pages || !rec.pages.length || pages.length) { checked = true; return; }
+    restoring = true; smsg("info", `⏳ Restoring ${rec.pages.length} pages from your last session…`);
+    const got = []; let bad = 0;
+    for (const r of rec.pages) {
+      if (tok !== restoreTok) break;                 // beech mein "Clear" dabaya
+      try {                                          // ek kharab page poori restore na roke
         const src = await fileToCanvas(r.src);
         const page = { src, srcBlob: r.src, corners: r.corners, rot: r.rot || 0, filter: r.filter || "magic" };
-        await processPage(page); pages.push(page);
-      }
-      if (rec.name) $("scanName").value = rec.name;
-      restoring = false; renderGrid();
-      smsg("ok", `↩ Restored ${pages.length} pages from your last session. To start over, tap "Clear and start new scan" below.`);
-    } catch (e) { restoring = false; }
+        await processPage(page); got.push(page);
+      } catch (e) { bad++; }
+    }
+    restoring = false; checked = true;
+    if (tok !== restoreTok) return;
+    pages.push(...got);
+    if (rec.name && got.length) $("scanName").value = rec.name;
+    renderGrid();
+    if (!got.length) { clearSession(); return smsg("err", "The last scan could not be restored. Please scan again."); }
+    smsg("ok", `↩ Restored ${got.length} page${got.length > 1 ? "s" : ""} from your last session${bad ? ` (${bad} damaged page${bad > 1 ? "s" : ""} skipped)` : ""}. To start over, tap "Clear and start new scan" below.`);
   }
-  $("scanClear").onclick = () => {
+  $("scanClear").onclick = async () => {
     if (!pages.length || !confirm(`Delete all ${pages.length} pages and start a new scan?`)) return;
+    restoreTok++; restoring = false;                 // chal rahi restore band
     pages.forEach(p => p.url && URL.revokeObjectURL(p.url)); pages.length = 0;
+    await clearSession();                            // save ki hui purani scan bhi mitao, warna wapas aa jaati
     $("scanName").value = ""; openScan(); smsg("ok", "New scan started. Use the buttons below to add pages.");
   };
 
@@ -1167,5 +1189,5 @@
       }, "crop");
     });
   }
-  window.PBScan = { version: "2.6", editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
+  window.PBScan = { version: "2.7.1", editPhoto, pages, idPages, lv, openLive, addImages, makePdf, set quality(v) { quality = v; }, processPage, openEditor, idLayout, writePdf, applyFilter, get ed() { return ed; } };
 })();

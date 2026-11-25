@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>PrintBridge Admin – Subscription codes</title>
+<style>
+  :root { --blue:#1d4ed8; --text:#111827; --muted:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:#f3f4f6; color:var(--text); }
+  header { background:var(--blue); color:#fff; padding:18px 16px 40px; }
+  header h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; opacity:.85; font-size:13px; }
+  main { max-width:520px; margin:-26px auto 30px; padding:0 12px; }
+  .card { background:#fff; border-radius:16px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:12px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+  input, select { width:100%; font-size:17px; padding:11px 12px; border:1px solid #d1d5db; border-radius:10px; }
+  #id { font-family:ui-monospace,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:1px; }
+  button { width:100%; border:0; border-radius:12px; background:var(--blue); color:#fff; font-size:16px; font-weight:600; padding:13px; margin-top:14px; cursor:pointer; }
+  button.light { background:#eef2ff; color:var(--blue); }
+  button:disabled { opacity:.5; }
+  .msg { display:none; margin-top:12px; padding:10px 12px; border-radius:10px; font-size:14px; line-height:1.45; }
+  .msg.err { display:block; background:#fef2f2; color:#b91c1c; } .msg.info { display:block; background:#eff6ff; color:#1e40af; }
+  .code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:30px; font-weight:700; letter-spacing:2px; text-align:center; padding:14px; background:#ecfdf5; color:#065f46; border-radius:12px; margin:8px 0; user-select:all; }
+  .muted { color:var(--muted); font-size:13px; line-height:1.5; }
+  textarea { width:100%; font-size:14px; padding:10px; border:1px solid #d1d5db; border-radius:10px; min-height:120px; font-family:inherit; }
+  .row { display:flex; gap:8px; } .row button { flex:1; }
+</style>
+</head>
+<body>
+<header><h1>🔑 PrintBridge Admin</h1><p>Create subscription codes after a customer pays.</p></header>
+<main>
+  <div class="card">
+    <label for="key">Admin password</label>
+    <input id="key" type="password" autocomplete="current-password" placeholder="PB_ADMIN_KEY from Render">
+    <label for="id">Customer's Computer ID</label>
+    <input id="id" placeholder="PB-XXXX-XXXX" maxlength="14" autocomplete="off">
+    <label for="months">Period</label>
+    <select id="months"><option value="12" selected>1 year</option><option value="24">2 years</option><option value="6">6 months</option><option value="1">1 month</option></select>
+    <button id="check" class="light">Check computer</button>
+    <button id="make">Create code</button>
+    <div class="msg" id="msg"></div>
+  </div>
+  <div class="card" id="out" style="display:none">
+    <div class="muted" id="outFor"></div>
+    <div class="code" id="code"></div>
+    <div class="muted" id="outUntil"></div>
+    <label>Message for the customer</label>
+    <textarea id="wa"></textarea>
+    <div class="row"><button id="copy" class="light">📋 Copy message</button><button id="share">💬 WhatsApp</button></div>
+  </div>
+  <p class="muted" style="padding:0 6px">A code works only on the Computer ID it was made for. If the computer is online, any time it still has left is added on top. The customer enters the code in PrintBridge → <b>Subscription</b> on their computer.</p>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  try { $("key").value = localStorage.getItem("pbAdminKey") || ""; } catch (e) {}
+  $("id").addEventListener("input", e => {
+    let s = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); if (s.startsWith("PB")) s = s.slice(2);
+    s = s.slice(0, 8); e.target.value = s ? "PB-" + (s.length > 4 ? s.slice(0, 4) + "-" + s.slice(4) : s) : "";
+  });
+  const show = (t, m) => { $("msg").className = "msg " + t; $("msg").innerHTML = m; };
+  const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const stateText = c => !c ? "" : c.state === "pro" ? `Subscribed until ${fmtDate(c.until)}` : c.state === "trial" ? `Free trial, ${c.days_left} days left (until ${fmtDate(c.until)})` :
+    c.state === "expired" ? "Subscription expired" : c.state === "legacy" ? "Old PrintBridge version (needs update)" : c.state;
+  async function call(preview) {
+    const key = $("key").value.trim(), id = $("id").value.trim();
+    if (!key) return show("err", "Enter the admin password");
+    if (id.length !== 12) return show("err", "Enter the full Computer ID, e.g. PB-7K3M-9QX2");
+    try { localStorage.setItem("pbAdminKey", key); } catch (e) {}
+    const r = await fetch("/api/admin/code", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, id, months: +$("months").value, preview }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) { show("err", j.error || "Error " + r.status); return null; }
+    return j;
+  }
+  $("check").onclick = async () => {
+    const j = await call(true); if (!j) return;
+    show("info", j.online ? `🟢 <b>${j.name || j.id}</b> is online.<br>${stateText(j.current)}<br>A new code would run until <b>${fmtDate(j.until)}</b>.`
+      : `⚪ ${j.id} is offline right now. A new code would start today and run until <b>${fmtDate(j.until)}</b>.<br>If they still have days left, ask them to open PrintBridge first so those days are added.`);
+  };
+  $("make").onclick = async () => {
+    $("make").disabled = true;
+    try {
+      const j = await call(false); if (!j) return;
+      $("msg").className = "msg";
+      $("out").style.display = "block";
+      $("outFor").textContent = `Code for ${j.name ? j.name + " · " : ""}${j.id}`;
+      $("code").textContent = j.code;
+      $("outUntil").textContent = `Valid until ${fmtDate(j.until)}`;
+      $("wa").value = `Thank you for your payment!\n\nYour PrintBridge subscription code:\n${j.code}\n\nOn your computer open PrintBridge → Subscription → Enter code.\nValid until ${fmtDate(j.until)} (Computer ID ${j.id}).`;
+      $("out").scrollIntoView({ behavior: "smooth" });
+    } finally { $("make").disabled = false; }
+  };
+  $("copy").onclick = async () => { try { await navigator.clipboard.writeText($("wa").value); $("copy").textContent = "✔ Copied"; } catch (e) { $("wa").select(); } };
+  $("share").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent($("wa").value), "_blank");
+</script>
+</body>
+</html>
